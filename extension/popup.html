@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web To OpenAPI</title>
+    <style>
+      :root { --fg:#1e293b; --mut:#64748b; --bd:#e2e8f0; --acc:#0f766e; --bg:#fff; }
+      * { box-sizing: border-box; }
+      body { margin:0; width:340px; background:var(--bg); color:var(--fg);
+        font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+      .wrap { padding:14px 16px 16px; }
+      header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+      .logo { width:30px; height:30px; border-radius:8px; background:var(--acc); color:#fff;
+        display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px; }
+      h1 { font-size:15px; margin:0; }
+      .sub { font-size:11px; color:var(--mut); margin:-2px 0 0; }
+      .status { font-size:12px; padding:8px 10px; border:1px solid var(--bd);
+        border-radius:8px; margin-bottom:10px; line-height:1.5; }
+      .status.ok { color:#0f766e; border-color:#cdeae5; background:#f3faf8; }
+      .status.bad { color:#dc2626; border-color:#f3c6c6; background:#fdf3f3; }
+      .row { display:flex; gap:8px; }
+      button { flex:1; background:var(--acc); color:#fff; border:0; border-radius:7px;
+        padding:8px 6px; font-size:12px; font-weight:600; cursor:pointer; }
+      button:hover { filter:brightness(1.07); }
+      button.ghost { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+      .hint { font-size:11px; color:var(--mut); margin-top:10px; line-height:1.6; }
+      code { background:#eef2f6; padding:1px 5px; border-radius:4px; font-size:11px; }
+      a { color:var(--acc); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="logo">W</div>
+        <div><h1>Web To OpenAPI</h1><div class="sub">本地网页 → OpenAPI 服务</div></div>
+      </header>
+      <div class="status" id="status">检测中...</div>
+      <div class="row">
+        <button id="openOptions">设置</button>
+        <button id="openDocs" class="ghost">文档</button>
+      </div>
+      <div class="hint">
+        示例: <code>GET /api/v1/scnet/balance</code><br>
+        文档: <code>/docs</code> · 目录: <code>/api/v1/tools</code>
+      </div>
+    </div>
+    <script src="/chunks/popup-clean.js"></script>
+  </body>
+</html>

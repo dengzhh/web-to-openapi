@@ -1,0 +1,9 @@
+﻿{
+    "name":  "com.webtoopenapi.host",
+    "description":  "Web To OpenAPI - Node.js host for the Edge extension; exposes browser automation as a local OpenAPI HTTP service (not MCP).",
+    "path":  "C:\\path\\to\\web-to-openapi\\host\\run_host.bat",
+    "type":  "stdio",
+    "allowed_origins":  [
+                            "chrome-extension://bjgdikingllkajknbjlopfmhgpcjponf/"
+                        ]
+}

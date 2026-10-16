@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web To OpenAPI</title>
+    <style>
+      :root { --fg:#1e293b; --mut:#64748b; --bd:#e2e8f0; --acc:#0f766e; --bg:#f8fafc; --card:#fff; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--fg);
+        font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; }
+      .wrap { max-width:680px; margin:0 auto; padding:32px 22px 56px; }
+      header { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+      .logo { width:38px; height:38px; border-radius:9px; background:var(--acc); color:#fff;
+        display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
+      h1 { font-size:22px; margin:0; }
+      .tag { display:inline-block; font-size:12px; color:var(--acc); background:#e6f4f1;
+        border:1px solid #cdeae5; padding:2px 9px; border-radius:999px; margin-left:8px;
+        vertical-align:middle; }
+      .sub { color:var(--mut); font-size:14px; margin:4px 0 22px; }
+      .card { background:var(--card); border:1px solid var(--bd); border-radius:12px;
+        padding:18px 20px; margin-bottom:14px; }
+      .card h2 { font-size:15px; margin:0 0 10px; }
+      .card p { font-size:13.5px; color:var(--fg); margin:0; }
+      code { background:#eef2f6; padding:1px 6px; border-radius:4px; font-size:12.5px; word-break:break-all; }
+      .ok { color:#0f766e; font-weight:600; }
+      .bad { color:#dc2626; font-weight:600; }
+      ol { margin:8px 0 0; padding-left:20px; }
+      ol li { font-size:13.5px; margin:5px 0; }
+      .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+      button { background:var(--acc); color:#fff; border:0; border-radius:8px;
+        padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+      button:hover { filter:brightness(1.07); }
+      button.ghost { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+      .status { font-size:13px; margin-top:8px; }
+      a { color:var(--acc); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="logo">W</div>
+        <h1>Web To OpenAPI <span class="tag">已安装</span></h1>
+      </header>
+      <p class="sub">
+        将网页能力封装为本地 OpenAPI HTTP 服务. SCNet 余额查询只是第一个示例接口,
+        未来会加入更多 Web 内容接口, 成熟后还将支持大模型定制 API.
+      </p>
+
+      <div class="card">
+        <h2>这是什么</h2>
+        <p>
+          本扩展随附一个本地服务 (native host). 它驱动 Edge 浏览器, 把网页上的数据/操作
+          暴露成一组可通过 HTTP 调用的 OpenAPI 接口. 无需任何命令行安装 —— 装好扩展即已就绪.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>当前状态</h2>
+        <div class="status" id="status">检测中...</div>
+      </div>
+
+      <div class="card">
+        <h2>使用步骤</h2>
+        <ol>
+          <li>在扩展「<b>选项</b>」里配置监听地址与端口 (默认 <code>127.0.0.1:8090</code>).</li>
+          <li>本地服务地址: <code id="svcAddr">http://127.0.0.1:8090</code></li>
+          <li>示例接口: <code>GET /api/v1/scnet/balance</code> (需 Edge 已登录 scnet).</li>
+          <li>接口目录: <code>GET /api/v1/tools</code> · 接口文档: <code>GET /docs</code> · 服务说明: <code>GET /openapi.json</code></li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>使用前提</h2>
+        <ol>
+          <li>已通过 <code>edge://extensions</code> (开发者模式) 加载本扩展一次.</li>
+          <li>已运行一次 <code>install-host.ps1</code> 注册 native messaging (一次即可).</li>
+          <li>Edge 已登录对应网站 (如 scnet.cn) 才能取到相关网页数据.</li>
+        </ol>
+      </div>
+
+      <div class="actions">
+        <button id="openOptions">打开设置</button>
+        <button id="openDocs" class="ghost">查看接口文档</button>
+      </div>
+    </div>
+    <script src="/chunks/welcome-clean.js"></script>
+  </body>
+</html>

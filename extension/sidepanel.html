@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web To OpenAPI</title>
+    <style>
+      :root { --fg:#1e293b; --mut:#64748b; --bd:#e2e8f0; --acc:#0f766e; --bg:#f8fafc; --card:#fff; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--fg);
+        font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; }
+      .wrap { padding:18px 16px 24px; }
+      header { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+      .logo { width:32px; height:32px; border-radius:8px; background:var(--acc); color:#fff;
+        display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; }
+      h1 { font-size:16px; margin:0; }
+      .sub { font-size:11px; color:var(--mut); margin:-2px 0 0; }
+      .status { font-size:12.5px; padding:9px 11px; border:1px solid var(--bd);
+        border-radius:8px; margin-bottom:14px; line-height:1.5; }
+      .status.ok { color:#0f766e; border-color:#cdeae5; background:#f3faf8; }
+      .status.bad { color:#dc2626; border-color:#f3c6c6; background:#fdf3f3; }
+      .card { background:var(--card); border:1px solid var(--bd); border-radius:10px;
+        padding:13px 14px; margin-bottom:12px; }
+      .card h2 { font-size:13px; margin:0 0 8px; }
+      .card p, .card li { font-size:12.5px; color:var(--fg); margin:0; }
+      code { background:#eef2f6; padding:1px 5px; border-radius:4px; font-size:11.5px; word-break:break-all; }
+      ol { margin:6px 0 0; padding-left:18px; }
+      ol li { margin:4px 0; }
+      .actions { display:flex; gap:8px; }
+      button { flex:1; background:var(--acc); color:#fff; border:0; border-radius:7px;
+        padding:8px 6px; font-size:12px; font-weight:600; cursor:pointer; }
+      button:hover { filter:brightness(1.07); }
+      button.ghost { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="logo">W</div>
+        <div><h1>Web To OpenAPI</h1><div class="sub">本地网页 → OpenAPI 服务</div></div>
+      </header>
+      <div class="status" id="status">检测中...</div>
+      <div class="card">
+        <h2>当前可用接口</h2>
+        <ol>
+          <li><code>GET /api/v1/scnet/balance</code> — SCNet 余额 (需登录 scnet)</li>
+          <li><code>GET /api/v1/tools</code> — 全部接口目录</li>
+          <li><code>GET /docs</code> · <code>GET /openapi.json</code> — 文档与规格</li>
+        </ol>
+      </div>
+      <div class="actions">
+        <button id="openOptions">设置</button>
+        <button id="openDocs" class="ghost">文档</button>
+      </div>
+    </div>
+    <script src="/chunks/sidepanel-clean.js"></script>
+  </body>
+</html>

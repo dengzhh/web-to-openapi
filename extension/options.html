@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web To OpenAPI 设置</title>
+    <style>
+      :root { --fg:#1e293b; --mut:#64748b; --bd:#e2e8f0; --acc:#0f766e; --bg:#f8fafc; --card:#fff; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--fg);
+        font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+      .wrap { max-width:640px; margin:0 auto; padding:28px 20px 56px; }
+      h1 { font-size:20px; margin:0 0 4px; }
+      .sub { color:var(--mut); font-size:13px; margin-bottom:20px; line-height:1.5; }
+      .card { background:var(--card); border:1px solid var(--bd); border-radius:10px;
+        padding:16px 18px; margin-bottom:14px; }
+      label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+      label:first-child { margin-top:0; }
+      input { width:100%; padding:9px 11px; font-size:14px; border:1px solid var(--bd);
+        border-radius:7px; outline:none; }
+      input:focus { border-color:var(--acc); }
+      select { width:100%; padding:9px 11px; font-size:14px; border:1px solid var(--bd);
+        border-radius:7px; outline:none; background:#fff; color:var(--fg); }
+      select:focus { border-color:var(--acc); }
+      .chk { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin:12px 0 6px; }
+      .chk input { width:auto; }
+      .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 14px; }
+      .hint { color:var(--mut); font-size:12px; margin-top:6px; line-height:1.5; }
+      .actions { display:flex; align-items:center; gap:10px; margin:6px 0 18px; }
+      button { background:var(--acc); color:#fff; border:0; border-radius:7px;
+        padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+      button:hover { filter:brightness(1.08); }
+      button.ghost { background:transparent; color:var(--acc); border:1px solid var(--acc); }
+      #status { font-size:13px; color:var(--acc); }
+      b { color:var(--fg); }
+      code { background:#eef2f6; padding:1px 5px; border-radius:4px; font-size:12px; }
+      ol { margin:8px 0 0; padding-left:20px; } ol li { font-size:13px; color:var(--fg); margin:4px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Web To OpenAPI 设置</h1>
+      <p class="sub">
+        配置本地 OpenAPI 服务的<b>监听地址</b>与<b>端口</b>。配置保存在扩展存储中;
+        保存后扩展会自动重新加载, 使新地址立即生效, 无需手动重启。
+      </p>
+
+      <div class="card">
+        <label for="host">监听地址 (Host)</label>
+        <input id="host" type="text" placeholder="127.0.0.1" spellcheck="false" />
+        <div class="hint">
+          <code>127.0.0.1</code> = 仅本机可访问(推荐);
+          <code>0.0.0.0</code> = 允许局域网/其他设备访问(请注意安全风险)。
+        </div>
+
+        <label for="port">监听端口 (Port)</label>
+        <input id="port" type="number" min="1" max="65535" placeholder="8090" />
+        <div class="hint">默认 <code>8090</code>。确保该端口未被其他程序占用。</div>
+      </div>
+
+      <div class="actions">
+        <button id="save">保存并应用</button>
+        <button id="reset" class="ghost">恢复默认</button>
+        <span id="status"></span>
+      </div>
+
+      <div class="card">
+        <b>百度搜索默认参数</b>
+        <div class="hint" style="margin-top:4px">
+          保存在扩展存储中并下发给本地服务。调用 <code>GET /api/v1/search/baidu</code> 时,
+          <b>请求显式传的参数优先</b>, 未传的字段自动套用此处默认。留空 = 不限制。
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="baidu_site">默认限定站点 (site)</label>
+            <input id="baidu_site" type="text" placeholder="github.com, python.org" spellcheck="false" />
+          </div>
+          <div>
+            <label for="baidu_intitle">默认标题含 (intitle)</label>
+            <input id="baidu_intitle" type="text" placeholder="论文, 教程" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="baidu_inurl">默认 URL 含 (inurl)</label>
+            <input id="baidu_inurl" type="text" placeholder="blog" spellcheck="false" />
+          </div>
+          <div>
+            <label for="baidu_exclude">默认排除词 (exclude)</label>
+            <input id="baidu_exclude" type="text" placeholder="广告, 招聘" spellcheck="false" />
+          </div>
+        </div>
+
+        <label for="baidu_exact">默认精确短语 (exact)</label>
+        <input id="baidu_exact" type="text" placeholder="attention is all you need" spellcheck="false" />
+
+        <div class="grid2">
+          <div>
+            <label for="baidu_filetype">默认文件类型 (filetype)</label>
+            <select id="baidu_filetype">
+              <option value="">不限</option>
+              <option value="pdf">PDF</option>
+              <option value="doc">DOC</option>
+              <option value="xls">XLS</option>
+              <option value="ppt">PPT</option>
+              <option value="rtf">RTF</option>
+            </select>
+          </div>
+          <div>
+            <label for="baidu_rn">默认每页条数 (rn)</label>
+            <select id="baidu_rn">
+              <option value="10">10 条/页</option>
+              <option value="20">20 条/页</option>
+              <option value="30">30 条/页</option>
+              <option value="40">40 条/页</option>
+              <option value="50" selected>50 条/页</option>
+              <option value="100">100 条/页</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="baidu_time">默认时间范围 (time)</label>
+        <select id="baidu_time">
+          <option value="">不限时间</option>
+          <option value="day">一天内</option>
+          <option value="week">一周内</option>
+          <option value="month">一月内</option>
+          <option value="year">一年内</option>
+        </select>
+
+        <label class="chk" for="baidu_resolve">
+          <input id="baidu_resolve" type="checkbox" />
+          默认解析跳转链接为真实 URL (resolve_urls, 每条约 +90ms)
+        </label>
+
+        <div class="actions">
+          <button id="save-baidu">保存默认参数</button>
+          <button id="reset-baidu" class="ghost">清空默认</button>
+          <span id="baidu-status"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <b>Google 搜索默认参数</b>
+        <div class="hint" style="margin-top:4px">
+          保存在扩展存储中并下发给本地服务。调用 <code>GET /api/v1/search/google</code> 时,
+          <b>请求显式传的参数优先</b>, 未传的字段自动套用此处默认。留空 = 不限制。
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_site">默认限定站点 (site)</label>
+            <input id="gg_site" type="text" placeholder="github.com, stackoverflow.com" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_intitle">默认标题含 (intitle)</label>
+            <input id="gg_intitle" type="text" placeholder="tutorial, guide" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_inurl">默认 URL 含 (inurl)</label>
+            <input id="gg_inurl" type="text" placeholder="blog, docs" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_intext">默认正文含 (intext)</label>
+            <input id="gg_intext" type="text" placeholder="" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_exclude">默认排除词 (exclude)</label>
+            <input id="gg_exclude" type="text" placeholder="ads, jobs" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_or">默认或关键词 (or)</label>
+            <input id="gg_or" type="text" placeholder="BERT, GPT" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_exact">默认精确短语 (exact)</label>
+            <input id="gg_exact" type="text" placeholder="attention is all you need" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_link">默认链接页 (link)</label>
+            <input id="gg_link" type="text" placeholder="" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_filetype">默认文件类型 (filetype)</label>
+            <select id="gg_filetype">
+              <option value="">不限</option>
+              <option value="pdf">PDF</option>
+              <option value="doc">DOC</option>
+              <option value="docx">DOCX</option>
+              <option value="xls">XLS</option>
+              <option value="xlsx">XLSX</option>
+              <option value="ppt">PPT</option>
+              <option value="pptx">PPTX</option>
+              <option value="txt">TXT</option>
+              <option value="rtf">RTF</option>
+            </select>
+          </div>
+          <div>
+            <label for="gg_num">默认每页条数 (num)</label>
+            <select id="gg_num">
+              <option value="10">10 条/页</option>
+              <option value="20" selected>20 条/页</option>
+              <option value="30">30 条/页</option>
+              <option value="50">50 条/页</option>
+              <option value="100">100 条/页</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_time">默认时间范围 (time)</label>
+            <select id="gg_time">
+              <option value="">不限时间</option>
+              <option value="hour">一小时内</option>
+              <option value="day">一天内</option>
+              <option value="week">一周内</option>
+              <option value="month">一月内</option>
+              <option value="year">一年内</option>
+            </select>
+          </div>
+          <div>
+            <label for="gg_safe">安全搜索 (safe)</label>
+            <select id="gg_safe">
+              <option value="">默认</option>
+              <option value="off">关闭过滤 (off)</option>
+              <option value="active">开启过滤 (active)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_hl">界面语言 (hl)</label>
+            <input id="gg_hl" type="text" placeholder="zh-CN" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_gl">国家/地区 (gl)</label>
+            <input id="gg_gl" type="text" placeholder="cn / us / jp" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_lr">限定语言 (lr)</label>
+            <input id="gg_lr" type="text" placeholder="lang_zh-CN" spellcheck="false" />
+          </div>
+          <div>
+            <label for="gg_cr">限定国家 (cr)</label>
+            <input id="gg_cr" type="text" placeholder="countryCN" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div>
+            <label for="gg_tbm">垂直搜索 (tbm)</label>
+            <select id="gg_tbm">
+              <option value="">网页</option>
+              <option value="nws">新闻</option>
+              <option value="vid">视频</option>
+            </select>
+          </div>
+          <div>
+            <label for="gg_after">起始日期 (after)</label>
+            <input id="gg_after" type="text" placeholder="2026-01-01" spellcheck="false" />
+          </div>
+        </div>
+
+        <label for="gg_before">截止日期 (before)</label>
+        <input id="gg_before" type="text" placeholder="2026-12-31" spellcheck="false" />
+
+        <label class="chk" for="gg_resolve">
+          <input id="gg_resolve" type="checkbox" />
+          默认解析跳转链接为真实 URL (resolve_urls)
+        </label>
+        <label class="chk" for="gg_nfpr">
+          <input id="gg_nfpr" type="checkbox" />
+          关闭拼写纠错 (nfpr)
+        </label>
+        <label class="chk" for="gg_verbatim">
+          <input id="gg_verbatim" type="checkbox" />
+          逐字匹配, 不做同义词扩展 (verbatim)
+        </label>
+
+        <div class="actions">
+          <button id="save-google">保存默认参数</button>
+          <button id="reset-google" class="ghost">清空默认</button>
+          <span id="google-status"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <b>使用前提</b>
+        <ol>
+          <li>已通过 <code>edge://extensions</code>(开发者模式) 加载本扩展 —— 仅需一次。</li>
+          <li>已运行一次 host 安装脚本 <code>install-host.ps1</code> —— 注册 native messaging, 仅需一次。</li>
+          <li>Edge 已登录 <code>scnet.cn</code>(余额查询需要)。</li>
+        </ol>
+        <div class="hint">当前本地服务: <b id="current">检测中...</b></div>
+      </div>
+    </div>
+    <script src="options.js"></script>
+  </body>
+</html>
