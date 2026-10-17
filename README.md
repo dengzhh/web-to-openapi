@@ -18,7 +18,8 @@
 HTTP 客户端 (curl / 你的代码 / 其他服务)
       │  GET /api/v1/scnet/balance ...  (示例接口; 更多 Web API 陆续加入)
       ▼
-openapi-host.js (Node, 地址/端口由「插件设置」决定, 默认 127.0.0.1:8090)
+openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件)
+  (Node, 地址/端口由「插件设置」决定, 默认 127.0.0.1:8090)
       │  native messaging(stdio): {type:"call_tool", payload:{name,args}, requestId}
       ▼
 Edge 扩展(web-to-openapi/extension, 独立副本, 不提供 MCP)
@@ -32,7 +33,9 @@ Edge 扩展(web-to-openapi/extension, 独立副本, 不提供 MCP)
 | 路径 | 说明 |
 |---|---|
 | `extension/` | 独立 Edge 扩展（从 `chrome-mcp-server-1.0.0` 复制改造：新密钥/新 ID、宿主名改为 `com.webtoopenapi.host`、品牌重命名为 Web To OpenAPI、内置 Options 设置页） |
-| `host/openapi-host.js` | native host：stdio 协议 + HTTP OpenAPI 服务 + `/mcp` MCP 服务（核心） |
+| `host/openapi-host.js` | **启动入口（薄）**：装配站点注册表 → native messaging → HTTP 服务 |
+| `host/lib/` | 基础设施：`config` 配置 / `log` 日志 / `nm` native messaging 命令通道 / `util` 浏览器操作（开页·执行 JS·重试提取·链接还原）/ `defaults` 默认参数三层合并 / `registry` 站点注册表 / `mcp` MCP 协议 / `spec` `/openapi.json` / `docs` `/docs` 文档页 / `tools` 浏览器工具目录 / `http` 路由分发 |
+| `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js`（以及服务自身的 `_service.js`）。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
 | `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）——仅当「插件设置」未配置时生效 |
 | `host/run_host.bat` | Edge 拉起 host 的启动器（自动找 node.exe） |
@@ -306,22 +309,65 @@ node tools/gen-key.mjs --apply   # 生成密钥 + 写回 manifest key 与 allowe
 
 > **体积提示**：`extension/workers/` 里有 ONNX Runtime 的 WASM（约 32MB，上游语义相似度引擎用）。它们只服务于「按语义描述找页面元素」这类能力；本项目的 OpenAPI / MCP 端点（余额、搜索、页面抓取）不依赖它。不需要语义能力的话，删掉 `extension/workers/` 可把仓库从 ~45MB 降到 ~13MB，扩展照常工作。
 
-## 新增能力（百度搜索 / 谷歌搜索 / 网页抓取 …）
+## 新增一个网页（推荐方式）
 
-`chrome_navigate` + `chrome_javascript` 组合即可。示例——百度搜索：
+站点采用**注册表架构**：一个网页 = `host/sites/` 下的一个文件。写好后在 `host/sites/index.js` 的清单里加一行 `require`，下面四处**自动生效**，不需要改动任何基础设施代码：
 
-```bash
-# 1) 打开搜索结果页（新窗口）
-curl -s -X POST http://127.0.0.1:8090/api/v1/tools/chrome_navigate \
-  -H "Content-Type: application/json" \
-  -d '{"args":{"url":"https://www.baidu.com/s?wd=AI","newWindow":true}}'
-# 2) 用返回的 tabId 执行 JS 取结果文本
-curl -s -X POST http://127.0.0.1:8090/api/v1/tools/chrome_javascript \
-  -H "Content-Type: application/json" \
-  -d '{"args":{"tabId":123,"code":"return document.body.innerText"}}'
+| 自动生效 | 说明 |
+|---|---|
+| REST 路由 | `endpoints[].path` + `methods`（`GET` / `POST`，POST 用于中文免 URL 编码） |
+| MCP 工具 | `tools[]` 进入 `tools/list`，参数描述同时是 `/openapi.json` 与 `/docs` 的唯一数据源 |
+| `/openapi.json` | `paths` 由 `endpoints` 派生 |
+| `/docs` 文档页 | 卡片 + curl 示例由 `endpoints[].doc` 派生 |
+| 扩展默认参数消息 | 有 `defaults` 的站点自动获得 `set/get_<id>_defaults` 消息（三层合并 + 落盘） |
+
+站点模块最小形态：
+
+```js
+// host/sites/example.js
+const { openPage, closeTab, jsEval } = require("../lib/util");
+const { createDefaultsStore } = require("../lib/defaults");
+
+const defaults = createDefaultsStore({
+  id: "example", file: "example-defaults.json",
+  builtin: { num: 20 },
+  sanitize: (v) => (v && v.num ? { num: parseInt(v.num, 10) } : {}),
+});
+
+async function search(p) { /* openPage -> jsEval -> 结构化返回 */ }
+
+module.exports = {
+  id: "example",
+  title: "示例站点",
+  defaults,                                  // 可选
+  endpoints: [{                              // REST
+    method: "GET", methods: ["GET", "POST"], path: "/api/v1/search/example",
+    tool: "example_search", operationId: "exampleSearch",
+    summary: "…", description: "…", responses: { 200: { description: "…" } },
+    parse: (input) => input,                 // GET 查询串 / POST JSON -> 参数对象
+    run: (p) => search(p),
+    browser: true,                           // 需要驱动浏览器 -> 自动串行化
+    doc: { note: "…", tryQuery: "…", curlGet: "…", curlPost: "…" },
+  }],
+  tools: [{                                  // MCP
+    name: "example_search", description: "…",
+    inputSchema: { type: "object", properties: { q: { type: "string", description: "…" } } },
+    browser: true, run: (args) => search(args),
+  }],
+};
 ```
 
-要固化成端点（如 `GET /api/v1/search/baidu?q=...`），在 `host/openapi-host.js` 里加一个路由 + 提取函数即可（可参照 `scnetGetBalance` 的写法）。
+> 摸清新站点的 DOM 结构可用 `tools/probe_baidu.py` 之类的 SERP 探针先采样。
+> 临时用一次、不想固化成端点时，直接用透传接口 `POST /api/v1/tools/chrome_navigate` + `chrome_javascript`：
+>
+> ```bash
+> curl -s -X POST http://127.0.0.1:8090/api/v1/tools/chrome_navigate \
+>   -H "Content-Type: application/json" \
+>   -d '{"args":{"url":"https://www.baidu.com/s?wd=AI","newWindow":true}}'
+> curl -s -X POST http://127.0.0.1:8090/api/v1/tools/chrome_javascript \
+>   -H "Content-Type: application/json" \
+>   -d '{"args":{"tabId":123,"code":"return document.body.innerText"}}'
+> ```
 
 ## 运维说明
 

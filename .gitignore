@@ -24,6 +24,8 @@ tools/probe-bg3.js
 *.zip
 # 本机镜像副本
 _syn/
+# 重构前的单体实现备份
+*.orig
 # 探针/调试脚本的临时输出
 probe*.json
 probe_nav*.json
