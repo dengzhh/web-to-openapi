@@ -108,13 +108,13 @@ function docsHtml() {
 <body>
 <div class="wrap">
   <h1>Web To OpenAPI</h1>
-  <div class="sub">独立 Edge 插件 + 本地 OpenAPI HTTP 服务 · 不依赖 MCP 客户端 · 底层复用 chrome-mcp-server 浏览器操作接口 · 当前监听 <b>${base}</b></div>
+  <div class="sub">浏览器插件(Edge / Chrome 通用) + 本地 OpenAPI HTTP 服务 · 不依赖 MCP 客户端 · 底层复用 chrome-mcp-server 浏览器操作接口 · 当前监听 <b>${base}</b></div>
 
 ${cards.join("\n\n")}
 
   <div class="card"><div class="d" style="margin:0">响应输出</div><pre id="out">(点击「试一下」查看响应)</pre></div>
 
-  <div class="sub" style="margin-top:24px">配置: host/config.json · 日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\openapi-host.log · 前提: Edge 已加载 web-to-openapi 扩展且已登录 scnet</div>
+  <div class="sub" style="margin-top:24px">配置: host/config.json · 日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\openapi-host.log · 前提: 浏览器(Edge 或 Chrome)已加载 web-to-openapi 扩展且已登录 scnet</div>
 </div>
 <script>
 async function callApi(p) {

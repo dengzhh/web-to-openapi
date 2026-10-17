@@ -66,7 +66,7 @@ if ($Uninstall) {
             Write-Host "[skip]" $k "(not present)"
         }
     }
-    Write-Host "[done] uninstalled. Remove/disable the extension at edge://extensions"
+    Write-Host "[done] uninstalled. Remove/disable the extension at edge://extensions or chrome://extensions"
     exit 0
 }
 
@@ -81,12 +81,12 @@ foreach ($k in $keys) {
 $verify = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Microsoft\Edge\NativeMessagingHosts\$HostName")
 $val = $verify.GetValue("")
 $verify.Close()
-if ($val -eq $Manifest) { Write-Host "[verify] OK - Edge key reads back correctly" }
+if ($val -eq $Manifest) { Write-Host "[verify] OK - Edge key reads back correctly (Chrome key was written too)" }
 else { Write-Error "[verify] FAILED - registry readback mismatch: $val"; exit 1 }
 
 Write-Host ""
 $extPath = Join-Path (Split-Path $PSScriptRoot -Parent) "extension"
-Write-Host "[next] Open edge://extensions, enable Developer mode, click"
+Write-Host "[next] Open edge://extensions (or chrome://extensions), enable Developer mode, click"
 Write-Host "       'Load unpacked' and select: $extPath"
 Write-Host "[next] The extension will auto-launch this host; HTTP listens on http://127.0.0.1:8090 (see config.json)"
 Write-Host "[test] curl http://127.0.0.1:8090/health"

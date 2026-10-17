@@ -23,8 +23,9 @@ echo ------------------------------------------------------
 if errorlevel 1 (
   echo Registration failed. See output above.
 ) else (
-  echo Success. Now load the extension in Edge:
-  echo   edge://extensions  ->  Developer mode  ->  Load unpacked  ->  select the "extension/" folder
+  echo Success. Now load the extension in Edge or Chrome:
+  echo   edge://extensions   ->  Developer mode  ->  Load unpacked  ->  select the "extension/" folder
+  echo   chrome://extensions ->  Developer mode  ->  Load unpacked  ->  select the "extension/" folder
   echo The host will auto-start and listen on http://127.0.0.1:8090
 )
 echo.

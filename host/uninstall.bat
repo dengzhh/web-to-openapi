@@ -15,6 +15,6 @@ echo ======================================================
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -Uninstall
 echo.
-echo Done. You may also remove/disable the extension at edge://extensions
+echo Done. You may also remove/disable the extension at edge://extensions or chrome://extensions
 echo.
 pause

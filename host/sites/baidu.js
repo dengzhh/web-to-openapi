@@ -155,7 +155,7 @@ async function search(p) {
       flag: "hasLeft",
       label: "baidu",
       guards: (d) => {
-        if (d && d.captcha) throw new Error("百度安全验证(反爬): 请在 Edge 里手动打开百度完成一次搜索/验证后重试");
+        if (d && d.captcha) throw new Error("百度安全验证(反爬): 请在浏览器(Edge / Chrome)里手动打开百度完成一次搜索/验证后重试");
       },
     });
     let items = (raw.items || []).map((it) => {
@@ -199,7 +199,7 @@ module.exports = {
       tool: "baidu_search",
       operationId: "baiduSearch",
       summary: "百度搜索(完整高级查询参数)",
-      description: "实时驱动 Edge 打开百度搜索并解析结果。参数: q(基础词, 可含 site:/intitle:/inurl:/filetype:/-排除/\"精确短语\"); site/intitle/inurl/exclude(可重复或逗号分隔); filetype(pdf/doc/xls/ppt/rtf); exact(精确短语); rn(10/20/30/40/50/100); page(页码); time(day/week/month/year); resolve_urls(true 时把百度跳转链接解析为真实 URL)。合并顺序: 请求参数 > 扩展设置页默认(/api/v1/search/baidu/defaults 查看) > 内置默认。每次调用约 5-15 秒。",
+      description: "实时驱动浏览器(Edge / Chrome)打开百度搜索并解析结果。参数: q(基础词, 可含 site:/intitle:/inurl:/filetype:/-排除/\"精确短语\"); site/intitle/inurl/exclude(可重复或逗号分隔); filetype(pdf/doc/xls/ppt/rtf); exact(精确短语); rn(10/20/30/40/50/100); page(页码); time(day/week/month/year); resolve_urls(true 时把百度跳转链接解析为真实 URL)。合并顺序: 请求参数 > 扩展设置页默认(/api/v1/search/baidu/defaults 查看) > 内置默认。每次调用约 5-15 秒。",
       post: {
         operationId: "baiduSearchPost",
         summary: "百度搜索(POST JSON body, 中文免 URL 编码)",
@@ -237,7 +237,7 @@ module.exports = {
   tools: [
     {
       name: "baidu_search",
-      description: "百度搜索(实时驱动 Edge 打开百度 SERP 解析, 约 5-15 秒)。q 为基础查询词, 可含 site:/intitle:/inurl:/filetype: 操作符、-排除词、\"精确短语\"; 也可用结构化参数(列表参数传数组如 site:[\"zhihu.com\"], 也接受逗号分隔字符串)。time 支持 day/week/month/year; resolve_urls=true 时把百度跳转链接解析为真实 URL。中文查询词直接传即可(MCP 无 URL 编码问题)。参数优先级: 请求显式参数 > 扩展设置页默认 > 内置默认。",
+      description: "百度搜索(实时驱动浏览器打开百度 SERP 解析, 约 5-15 秒)。q 为基础查询词, 可含 site:/intitle:/inurl:/filetype: 操作符、-排除词、\"精确短语\"; 也可用结构化参数(列表参数传数组如 site:[\"zhihu.com\"], 也接受逗号分隔字符串)。time 支持 day/week/month/year; resolve_urls=true 时把百度跳转链接解析为真实 URL。中文查询词直接传即可(MCP 无 URL 编码问题)。参数优先级: 请求显式参数 > 扩展设置页默认 > 内置默认。",
       inputSchema: {
         type: "object",
         properties: {

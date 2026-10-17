@@ -6,9 +6,9 @@
  *       使用本服务的全部能力。内部把 newline-delimited JSON-RPC 转发给
  *       openapi-host.js 的 HTTP /mcp 端点(http://127.0.0.1:8090/mcp)。
  *
- * 链路: MCP客户端 <--stdio--> mcp-stdio.js <--HTTP--> openapi-host.js(被 Edge 拉起) --> Edge 扩展 --> 浏览器
+ * 链路: MCP客户端 <--stdio--> mcp-stdio.js <--HTTP--> openapi-host.js(被浏览器拉起) --> 浏览器扩展(Edge / Chrome) --> 浏览器
  *
- * 前提: Edge 已打开且扩展在线(openapi-host.js 由扩展自动拉起并监听 8090)。
+ * 前提: 浏览器(Edge 或 Chrome)已打开且扩展在线(openapi-host.js 由扩展自动拉起并监听 8090)。
  *       /health 不通时本入口会在 stderr 给出明确提示, 而不是静默失败。
  *
  * 纪律:
@@ -79,11 +79,11 @@ function forward(line) {
     req.on("timeout", () => { req.destroy(new Error(`upstream timeout after 150s (port ${PORT})`)); });
     req.on("error", (e) => {
       errLog(`upstream http://${HOST}:${PORT}/mcp unreachable: ${e.message}`);
-      errLog("请确认: ① Edge 已启动并加载 web-to-openapi 扩展 ② 扩展已把 openapi-host 拉起(开机后第一次会自动拉起) ③ 端口未被 config.json/环境变量改掉");
+      errLog("请确认: ① 浏览器(Edge 或 Chrome)已启动并加载 web-to-openapi 扩展 ② 扩展已把 openapi-host 拉起(开机后第一次会自动拉起) ③ 端口未被 config.json/环境变量改掉");
       resolve(JSON.stringify({
         jsonrpc: "2.0",
         id: null,
-        error: { code: -32000, message: `web-to-openapi 服务不可达(http://${HOST}:${PORT}/mcp): ${e.message}。请启动 Edge 并确认扩展在线。` },
+        error: { code: -32000, message: `web-to-openapi 服务不可达(http://${HOST}:${PORT}/mcp): ${e.message}。请启动浏览器(Edge 或 Chrome)并确认扩展在线。` },
       }));
     });
     req.end(payload);
@@ -137,4 +137,4 @@ process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
 errLog(`MCP stdio bridge ready -> http://${HOST}:${PORT}/mcp (stdin JSON-RPC 按行读取)`);
-errLog("提示: 上游服务由 Edge 扩展自动拉起; 若长时间不可达请先打开 Edge。");
+errLog("提示: 上游服务由浏览器扩展自动拉起; 若长时间不可达请先打开 Edge 或 Chrome。");

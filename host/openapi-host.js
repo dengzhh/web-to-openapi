@@ -3,7 +3,7 @@
  * openapi-host.js —— 启动入口(薄)
  * ---------------------------------------------------------------------------
  * 定位:
- *   - 由 Edge 扩展(web-to-openapi/extension)经 native messaging 拉起; stdio 不是"启动钩子",
+ *   - 由浏览器扩展(web-to-openapi/extension, Edge / Chrome 通用)经 native messaging 拉起; stdio 不是"启动钩子",
  *     而是 host <-> 扩展之间的持续命令通道: host 发 call_tool -> 扩展用 chrome.* 执行 -> 回传结果。
  *     去掉 native messaging = host 失去驱动浏览器的能力(它不是可省的启动器)。
  *   - 同时对外暴露两套等价接口: OpenAPI 风格 HTTP(/docs 有文档) 与 MCP(/mcp, Streamable HTTP)。

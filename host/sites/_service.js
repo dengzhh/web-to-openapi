@@ -44,13 +44,13 @@ module.exports = {
   tools: [
     {
       name: "service_health",
-      description: "查看 web-to-openapi 服务健康状态。返回 {status,service,version,listen,extension_connected,uptime_s}: 服务是否在监听、Edge 扩展是否连通、运行时长(秒)。",
+      description: "查看 web-to-openapi 服务健康状态。返回 {status,service,version,listen,extension_connected,uptime_s}: 服务是否在监听、浏览器扩展(Edge / Chrome)是否连通、运行时长(秒)。",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       run: health,
     },
     {
       name: "browser_tool",
-      description: "透传调用任意浏览器工具(经 Edge 扩展执行, 完整列表见 GET /api/v1/tools)。常用: chrome_navigate(打开 URL, 返回 tabId) / chrome_javascript(在指定标签页执行 JS) / chrome_read_page(读取页面结构) / get_windows_and_tabs(窗口与标签列表) / chrome_screenshot(截图)。适合固化端点覆盖不到的场景。",
+      description: "透传调用任意浏览器工具(经浏览器扩展执行, 完整列表见 GET /api/v1/tools)。常用: chrome_navigate(打开 URL, 返回 tabId) / chrome_javascript(在指定标签页执行 JS) / chrome_read_page(读取页面结构) / get_windows_and_tabs(窗口与标签列表) / chrome_screenshot(截图)。适合固化端点覆盖不到的场景。",
       inputSchema: {
         type: "object",
         properties: {

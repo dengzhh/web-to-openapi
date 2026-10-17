@@ -1,6 +1,6 @@
 "use strict";
 /*
- * native messaging(stdio): host <-> Edge 扩展之间的持续命令通道。
+ * native messaging(stdio): host <-> 浏览器扩展(Edge / Chrome 通用)之间的持续命令通道。
  * 由扩展拉起本 host 后, stdio 不是"启动钩子"而是命令通道:
  *   host  -> 扩展 : {type:"call_tool", payload:{name,args}, requestId}
  *   扩展  -> host : {responseToRequestId, payload:{status,data}}

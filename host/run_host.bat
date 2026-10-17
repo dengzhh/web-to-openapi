@@ -1,7 +1,7 @@
 @echo off
 setlocal
 REM web-to-openapi native host launcher (pure ASCII)
-REM Launched by Edge via native messaging; stdio pipes carry the protocol.
+REM Launched by the browser (Edge/Chrome) via native messaging; stdio carries the protocol.
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"

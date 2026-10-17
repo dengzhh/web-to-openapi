@@ -1,16 +1,18 @@
-# Web To OpenAPI —— 把任意网页能力封装成 OpenAPI / MCP 的 Edge 插件 + 本地服务
+# Web To OpenAPI —— 把任意网页能力封装成 OpenAPI / MCP 的浏览器插件 + 本地服务
+
+> **支持 Edge 与 Chrome（及其它 Chromium 内核浏览器）**。文中出现「Edge」的地方均可替换为 Chrome，二者用法完全一致——安装包里只有一份扩展，两个浏览器都能加载。
 
 把浏览器里的任意网页能力（需要登录的控制台、搜索引擎结果页、动态渲染的页面……），包装成**本地 HTTP 服务**对外提供：一套代码，**同时**暴露 OpenAPI（REST）与 MCP 两套接口。
 
 - **两套接口，同一进程同一端口**：REST 供 `curl` / 任何语言调用；`/mcp` 端点供 MCP 客户端直接接入（也可用 `mcp-stdio.js` 以 command 方式接入）；
-- **不依赖任何浏览器驱动**：走 Edge 扩展 + native messaging，用的是**你在浏览器里已有的登录态**，不需要再处理 Cookie / 验证码 / 2FA；
+- **不依赖任何浏览器驱动**：走浏览器扩展（Edge / Chrome）+ native messaging，用的是**你在浏览器里已有的登录态**，不需要再处理 Cookie / 验证码 / 2FA；
 - **底层复用 chrome-mcp-server（mcp-chrome-bridge）的浏览器操作接口**：native messaging `CALL_TOOL` → 扩展执行 `chrome_navigate` / `chrome_javascript` / `chrome_read_page` 等内置工具（协议与 mcp-chrome-bridge 同源）；
 - **监听地址 / 端口可在「插件设置」里配置**：通过扩展 Options 页写入，保存后自动生效，**无需手改任何文件**；
 - **全部跑在本机**：默认只监听 `127.0.0.1`，不对外暴露，不上传任何数据。
 
 > **适用边界**：它解决的是「没有公开 API、但又想用程序拿到数据」这类场景——**前提是你本人在浏览器里对该站点有合法访问权限**。请仅用于你有权限访问的账号与服务，并遵守目标站点的使用条款。
 
-> 一句话：**安装一次，之后每次开 Edge 自动可用**；地址和端口在插件设置里改，不用碰命令行。
+> 一句话：**安装一次，之后每次打开浏览器（Edge 或 Chrome）自动可用**；地址和端口在插件设置里改，不用碰命令行。
 
 ## 架构
 
@@ -22,23 +24,23 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
   (Node, 地址/端口由「插件设置」决定, 默认 127.0.0.1:8090)
       │  native messaging(stdio): {type:"call_tool", payload:{name,args}, requestId}
       ▼
-Edge 扩展(web-to-openapi/extension, 独立副本, 不提供 MCP)
+浏览器扩展(web-to-openapi/extension, 独立副本, 不提供 MCP; Edge / Chrome 通用)
       │  chrome.tabs / chrome.scripting / chrome.debugger ...
       ▼
-真实 Edge 浏览器(已登录对应网站的登录态)
+真实浏览器(Edge 或 Chrome, 已登录对应网站的登录态)
 ```
 
 ## 目录
 
 | 路径 | 说明 |
 |---|---|
-| `extension/` | 独立 Edge 扩展（从 `chrome-mcp-server-1.0.0` 复制改造：新密钥/新 ID、宿主名改为 `com.webtoopenapi.host`、品牌重命名为 Web To OpenAPI、内置 Options 设置页） |
+| `extension/` | 独立浏览器扩展（**Edge / Chrome 通用**；从 `chrome-mcp-server-1.0.0` 复制改造：新密钥/新 ID、宿主名改为 `com.webtoopenapi.host`、品牌重命名为 Web To OpenAPI、内置 Options 设置页） |
 | `host/openapi-host.js` | **启动入口（薄）**：装配站点注册表 → native messaging → HTTP 服务 |
 | `host/lib/` | 基础设施：`config` 配置 / `log` 日志 / `nm` native messaging 命令通道 / `util` 浏览器操作（开页·执行 JS·重试提取·链接还原）/ `defaults` 默认参数三层合并 / `registry` 站点注册表 / `mcp` MCP 协议 / `spec` `/openapi.json` / `docs` `/docs` 文档页 / `tools` 浏览器工具目录 / `http` 路由分发 |
 | `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js`（以及服务自身的 `_service.js`）。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
 | `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）——仅当「插件设置」未配置时生效 |
-| `host/run_host.bat` | Edge 拉起 host 的启动器（自动找 node.exe） |
+| `host/run_host.bat` | 浏览器拉起 host 的启动器（自动找 node.exe；Edge / Chrome 走同一个） |
 | `host/com.webtoopenapi.host.json` | native messaging manifest（`allowed_origins` = 扩展 ID，安装时自动推导，无需手改） |
 | `host/install-host.ps1` | 注册/注销 native host（写 HKCU 注册表，无需管理员，Edge + Chrome 双键） |
 | `tools/gen-key.mjs` | （可选）生成自己的扩展密钥 + 计算扩展 ID，可一键写回两处配置 |
@@ -55,16 +57,36 @@ Edge 扩展(web-to-openapi/extension, 独立副本, 不提供 MCP)
    ```
    - 卸载：双击 `host\uninstall.bat`（或上面的 ps1 加 `-Uninstall`）。
    - 脚本会把 `run_host.bat` 的真实绝对路径写回 manifest，并**根据扩展 key 自动推导扩展 ID**写入 `allowed_origins`——包解压在任何目录都能用。
-2. **加载扩展**：Edge 打开 `edge://extensions` → 开启「开发人员模式」→「加载已解包的扩展」→ 选择
-   `extension/`
-   （随仓库分发的密钥对应扩展 ID `bjgdikingllkajknbjlopfmhgpcjponf`；加载后**自动拉起 host 并监听默认 127.0.0.1:8090**）
+   - **Edge 和 Chrome 两个键会一起写上**（`HKCU\Software\Microsoft\Edge\NativeMessagingHosts` 与 `HKCU\Software\Google\Chrome\NativeMessagingHosts`），所以第 2 步选哪个浏览器都行，**不必为换浏览器重跑**。
+2. **加载扩展**（在你想用的浏览器里做一次即可）：
+   - **Edge**：打开 `edge://extensions` → 开启「开发人员模式」→「加载已解包的扩展」→ 选择 `extension/`
+   - **Chrome**：打开 `chrome://extensions` → 开启「开发者模式」→「加载已解包的扩展」→ 选择 `extension/`
+   - 随仓库分发的密钥对应扩展 ID `bjgdikingllkajknbjlopfmhgpcjponf`（**在 Edge 与 Chrome 下是同一个 ID**，因为扩展 ID 由 manifest 里的 `key` 推导，两个浏览器算法相同）；加载后**自动拉起 host 并监听默认 127.0.0.1:8090**。
 
-完成上面两步后，**以后每次打开 Edge 就会自动可用**，无需重复操作。
-如果 Edge 提示 host 未连接，重跑第 1 步即可。
+完成上面两步后，**以后每次打开该浏览器就会自动可用**，无需重复操作。
+如果浏览器提示 host 未连接，重跑第 1 步即可。
+
+## 浏览器兼容性：**Edge / Chrome 都支持**
+
+它不是「Edge 专用」——凡是支持 MV3 扩展 + native messaging 的 Chromium 内核浏览器都能用：
+
+| 浏览器 | 支持情况 |
+|---|---|
+| **Microsoft Edge** | ✅ 完整支持（默认示例） |
+| **Google Chrome** | ✅ 完整支持，同一份 `extension/` 目录直接加载 |
+| 其它 Chromium 内核（Brave、360、QQ 浏览器等） | 🟡 一般可用（需该浏览器支持「加载已解包的扩展」与用户级 native messaging 注册表键），未逐一实测 |
+
+Chrome 用户请注意三点：
+
+1. **换到 Chrome 不需要重跑安装脚本**——`install-host.ps1` 同时写了 Edge 和 Chrome 两处注册表键，直接加载扩展即可。
+2. **Chrome 对「非应用商店来源」的扩展加固更严**：解包加载的扩展可能在 Chrome 更新或重启后被自动禁用（`chrome://extensions` 卡片变灰）。届时手动重新启用即可；想一劳永逸可加企业策略白名单（把扩展 ID 加入 `ExtensionInstallAllowlist`），或打包上架 Chrome 应用商店。
+3. **不要同时在 Edge 和 Chrome 里都加载它**：两个浏览器会各拉起一个 host 进程争抢同一个 `127.0.0.1:8090`，只有一个能绑定成功（另一个不会崩，但会每 5 秒重试一次），且**请求最终由哪个浏览器执行是不确定的**。建议只用其一；确实需要两边都装时，给其中一个在插件「选项」里换个端口。
+
+> 另外：**登录态不跨浏览器共享**。Chrome 用自己的 profile，需要访问的站点（如余额类接口）得在 Chrome 里重新登录一次。
 
 ## 配置监听地址 / 端口（在插件设置里改）
 
-1. 在 Edge 工具栏右键本扩展 → **「选项」**（或在 `edge://extensions` 里点本扩展的「扩展选项」）。
+1. 在浏览器工具栏右键本扩展 → **「选项」**（或在 `edge://extensions` / `chrome://extensions` 里点本扩展的「扩展选项」）。
 2. 填写「监听地址」与「监听端口」，点 **「保存并应用」**。
 3. 扩展会自动重新加载，host 以新地址端口重启。验证：
    ```bash
@@ -112,7 +134,7 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 }
 ```
 
-`mcp-stdio.js` 是零依赖桥接进程：把客户端按行发来的 JSON-RPC 转发给 `/mcp` 端点，响应原样写回 stdout。**前提：Edge 已启动且扩展在线**（openapi-host 由扩展自动拉起；上游不可达时桥接进程会在 stderr 给出明确提示，不会静默失败）。
+`mcp-stdio.js` 是零依赖桥接进程：把客户端按行发来的 JSON-RPC 转发给 `/mcp` 端点，响应原样写回 stdout。**前提：浏览器（Edge 或 Chrome）已启动且扩展在线**（openapi-host 由扩展自动拉起；上游不可达时桥接进程会在 stderr 给出明确提示，不会静默失败）。
 
 ### 工具清单
 
@@ -139,13 +161,13 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | GET | `/health` | 存活探针（含扩展连接状态、运行时长、服务名 `web-to-openapi`） |
 | GET | `/openapi.json` | OpenAPI 3.0 规范（可导入 Postman / Swagger UI） |
 | GET | `/docs` | 文档页（可在线试调） |
-| GET | `/api/v1/scnet/free-credit` | **示例接口**：SCNet 免费额度（实时驱动 Edge 打开控制台提取，约 5-10s） |
-| GET | `/api/v1/scnet/token-plan` | **示例接口**：SCNet Token Plan（实时驱动 Edge 打开控制台提取，约 5-10s） |
+| GET | `/api/v1/scnet/free-credit` | **示例接口**：SCNet 免费额度（实时驱动浏览器（Edge / Chrome）打开控制台提取，约 5-10s） |
+| GET | `/api/v1/scnet/token-plan` | **示例接口**：SCNet Token Plan（实时驱动浏览器（Edge / Chrome）打开控制台提取，约 5-10s） |
 | GET | `/api/v1/scnet/balance` | 聚合接口：免费额度 + Token Plan 一次返回（约 10-20s） |
-| GET | `/api/v1/search/baidu` | **百度搜索**：完整高级查询参数（见下文），实时驱动 Edge 打开百度解析结果（约 5-15s） |
+| GET | `/api/v1/search/baidu` | **百度搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开百度解析结果（约 5-15s） |
 | POST | `/api/v1/search/baidu` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
 | GET | `/api/v1/search/baidu/defaults` | 查看百度搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
-| GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动 Edge 打开谷歌解析结果（约 5-15s） |
+| GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开谷歌解析结果（约 5-15s） |
 | POST | `/api/v1/search/google` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
 | GET | `/api/v1/search/google/defaults` | 查看谷歌搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
 | GET | `/api/v1/tools` | 可用浏览器操作工具目录 |
@@ -247,11 +269,11 @@ curl -s "http://127.0.0.1:8090/api/v1/search/google?q=AI&tbm=nws"   # 新闻垂�
 
 返回字段：`query`（最终生效的查询词）/ `page` / `num` / `start` / `time` / `after` / `before` / `total`（谷歌结果数，best-effort）/ `count` / `page_loaded`（SERP 是否完整加载）/ `no_result`（true = 谷歌明确返回零结果页，与「页面没加载完」区分）/ `items[]`，每项含 `title` / `url` / `real_url`（resolve_urls=true 时）/ `abstract` / `date`（如「2024年3月22日」「Jan 1, 2024」「3天前」）/ `is_ad`（是否推广）。
 
-> 注意：谷歌在部分网络环境下会返回 consent 同意页或反爬验证页（`/sorry/`），此时接口返回明确错误提示，按提示在 Edge 里手动完成一次搜索/验证后重试即可。
+> 注意：谷歌在部分网络环境下会返回 consent 同意页或反爬验证页（`/sorry/`），此时接口返回明确错误提示，按提示在浏览器（Edge / Chrome）里手动完成一次搜索/验证后重试即可。
 
 ### 在插件设置页配置默认查询参数
 
-扩展设置页（`edge://extensions` → 本扩展「详细信息」→「扩展选项」）提供「百度搜索默认参数」与「Google 搜索默认参数」两张卡片：
+扩展设置页（`edge://extensions` 或 `chrome://extensions` → 本扩展「详细信息」→「扩展选项」）提供「百度搜索默认参数」与「Google 搜索默认参数」两张卡片：
 默认站点 / 标题含 / URL 含 / 正文含（Google）/ 排除词 / 精确短语 / 或关键词（Google）/ 链接页（Google）/ 文件类型 / 每页条数 / 时间范围 / 安全搜索、界面语言、国家地区、限定语言/国家、垂直搜索、起止日期（Google）/ 是否解析真实 URL / 关闭纠错、逐字匹配（Google）。
 
 - 分别保存在扩展存储（`webtoopenapi_baidu_defaults` / `webtoopenapi_google_defaults`），经 native messaging 下发给 host 并持久化到 `%LOCALAPPDATA%\webtoopenapi\baidu-defaults.json` / `google-defaults.json`（host 重启不丢失，扩展重连也会自动同步）。
@@ -288,20 +310,20 @@ Token Plan 返回示例（`/api/v1/scnet/token-plan`）：
 node tools/gen-key.mjs --apply   # 生成密钥 + 写回 manifest key 与 allowed_origins
 ```
 
-然后双击 `host/install.bat` 重新注册，再在 `edge://extensions` 里重新加载扩展。
+然后双击 `host/install.bat` 重新注册，再在 `edge://extensions`（Chrome 则 `chrome://extensions`）里重新加载扩展。
 
 > 私钥保存在 `host/extension-key.json`，已被 `.gitignore` 排除。**请勿提交或分发私钥**；`manifest.json` 里的只是公钥（与 Chrome 应用商店分发 CRX 时携带的公钥同类），不含密钥材料。
 
 ## 隐私与安全
 
 - **只在本机**：默认监听 `127.0.0.1`，不对外暴露；不收集、不上传任何数据，也没有任何遥测。
-- **无凭据存储**：服务不保存账号密码，也不持有任何 API Key —— 它复用的就是你在 Edge 里已有的登录态（浏览器自动化 + 你自己的会话）。
+- **无凭据存储**：服务不保存账号密码，也不持有任何 API Key —— 它复用的就是你在浏览器（Edge / Chrome）里已有的登录态（浏览器自动化 + 你自己的会话）。
 - **接口无鉴权**：任何能访问 `127.0.0.1:8090` 的本机进程都能调用接口，等价于「能操控你的浏览器」。**不要把它绑定到 `0.0.0.0` 或暴露到公网/局域网**。
 - **用途合规**：请仅用于你本人有合法访问权限的账号与服务，遵守目标站点的使用条款与 robots 约定。
 
 ## 打包发布
 
-本服务由「Edge 扩展」+「本机 Node 原生宿主」两部分组成，二者需配套使用：
+本服务由「浏览器扩展（Edge / Chrome 通用）」+「本机 Node 原生宿主」两部分组成，二者需配套使用：
 
 1. 把 `extension/` 整个目录压缩为 `web-to-openapi-extension.zip`，分发给使用者「加载已解包的扩展」；
 2. 把 `host/`（含 `install-host.ps1`）一并分发；
@@ -371,22 +393,28 @@ module.exports = {
 
 ## 运维说明
 
-- **生命周期**：host 由 Edge 扩展拉起；Edge 退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
+- **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
 - **日志**：`%LOCALAPPDATA%\webtoopenapi\logs\openapi-host.log`（协议走 stdout，日志只走 stderr + 文件）。
 - **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
-- **前提**：Edge 已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
+- **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
 
 ## 常见问题
 
 **Q：接口返回 400 Bad Request，响应体是空的？**
 GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行只允许 ASCII，Node 的解析器会在协议层直接拒绝。改用 POST + JSON body（中文零编码），或对参数做 URL 编码。
 
-**Q：Edge 提示 host 未连接？**
-重跑一次 `host/install.bat`（脚本会自愈路径与扩展 ID），然后在 `edge://extensions` 里重新加载扩展。
+**Q：浏览器提示 host 未连接？**
+重跑一次 `host/install.bat`（脚本会自愈路径与扩展 ID），然后在 `edge://extensions`（Chrome 则 `chrome://extensions`）里重新加载扩展。
+
+**Q：能不能在 Chrome 上用？我只看到文档里写 Edge。**
+能，Edge 只是文档里的默认示例。同一份 `extension/` 目录在 Chrome 的 `chrome://extensions` 里直接加载即可，安装脚本已经把 Chrome 的注册键一起写好了；扩展 ID 也是同一个。详见「浏览器兼容性」一节。
+
+**Q：Edge 和 Chrome 同时装会怎样？**
+两者会争抢同一个端口，只有一个 host 能绑定成功，请求由哪个浏览器执行变得不确定。建议只在一边加载，或给其中一个换端口。
 
 **Q：搜索接口返回 0 条？**
-先看返回里的 `page_loaded` 与 `no_result`：`no_result: true` 表示搜索引擎确实返回了零结果页（不是失败）；两者都为 false 则可能是页面没加载完或触发了验证页，在 Edge 里手动访问一次该站点再重试。
+先看返回里的 `page_loaded` 与 `no_result`：`no_result: true` 表示搜索引擎确实返回了零结果页（不是失败）；两者都为 false 则可能是页面没加载完或触发了验证页，在浏览器里手动访问一次该站点再重试。
 
 ## 许可证与署名
 

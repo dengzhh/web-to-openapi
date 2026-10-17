@@ -16,7 +16,7 @@ const { log } = require("./log");
 const MCP_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const MCP_SERVER_INFO = { name: SERVICE + "-mcp", version: VERSION };
 
-const INSTRUCTIONS = "本服务把 Edge 浏览器能力封装成 MCP 工具: 百度/谷歌搜索(完整高级参数, 中文免编码)、SCNet 余额查询、浏览器工具透传。首次调用搜索/余额类工具会真实打开浏览器页面, 约 5-15 秒。";
+const INSTRUCTIONS = "本服务把浏览器(Edge / Chrome)能力封装成 MCP 工具: 百度/谷歌搜索(完整高级参数, 中文免编码)、SCNet 余额查询、浏览器工具透传。首次调用搜索/余额类工具会真实打开浏览器页面, 约 5-15 秒。";
 
 // MCP 侧只暴露 schema 三要素
 function tools() {

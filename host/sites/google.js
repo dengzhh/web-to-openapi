@@ -198,7 +198,7 @@ function buildUrl(p) {
 }
 
 /*
- * SERP 结构实证(2026-10, Edge 实测):
+ * SERP 结构实证(2026-10, Chromium 实测; Edge/Chrome 结构一致):
  *   自然结果在 #rso 顶层 div 块里, 每块有一个 h3 所在的 a[href^=http];
  *   广告块带 data-text-ad 属性或位于 #tads/#bottomads, 块内含 Sponsored/赞助 标记;
  *   相关搜索/大家还会问/反馈等噪音块没有 h3 外链, 天然被排除。
@@ -303,8 +303,8 @@ async function search(p) {
       flag: "hasRso",
       label: "google",
       guards: (d) => {
-        if (d && d.consent) throw new Error("谷歌返回 consent 同意页: 请在 Edge 里手动打开 google.com 完成一次搜索/同意后重试");
-        if (d && d.captcha) throw new Error("谷歌反爬验证(unusual traffic): 请在 Edge 里手动打开 google.com 完成一次搜索后重试");
+        if (d && d.consent) throw new Error("谷歌返回 consent 同意页: 请在浏览器(Edge / Chrome)里手动打开 google.com 完成一次搜索/同意后重试");
+        if (d && d.captcha) throw new Error("谷歌反爬验证(unusual traffic): 请在浏览器(Edge / Chrome)里手动打开 google.com 完成一次搜索后重试");
       },
       // 合法的零结果页: 不用再等 12 秒
       stopWhen: (d) => !!(d && d.noResult && !d.hasRso),
@@ -360,7 +360,7 @@ module.exports = {
       tool: "google_search",
       operationId: "googleSearch",
       summary: "谷歌搜索(完整高级查询参数)",
-      description: "实时驱动 Edge 打开谷歌搜索并解析结果。参数: q(基础词, 可含 site:/intitle:/inurl:/intext:/filetype:/link:/-排除/\"精确短语\"/OR); site/intitle/inurl/intext/exclude/or(可重复或逗号分隔); filetype(pdf/doc/docx/xls/xlsx/ppt/pptx/txt/rtf); exact(精确短语); link(链接页); num(10/20/30/50/100); page(页码); start(显式偏移, 覆盖 page); time(hour/day/week/month/year); after/before(YYYY-MM-DD 自定义日期区间); hl(界面语言); gl(国家); lr(限定语言, 如 lang_zh-CN); cr(限定国家, 如 countryCN); safe(off/active); tbm(网页/新闻 nws/图片 isch/视频 vid); nfpr(关闭纠错); verbatim(逐字匹配); resolve_urls(解析跳转链接)。合并顺序: 请求参数 > 扩展设置页默认(/api/v1/search/google/defaults 查看) > 内置默认。每次调用约 5-15 秒。",
+      description: "实时驱动浏览器(Edge / Chrome)打开谷歌搜索并解析结果。参数: q(基础词, 可含 site:/intitle:/inurl:/intext:/filetype:/link:/-排除/\"精确短语\"/OR); site/intitle/inurl/intext/exclude/or(可重复或逗号分隔); filetype(pdf/doc/docx/xls/xlsx/ppt/pptx/txt/rtf); exact(精确短语); link(链接页); num(10/20/30/50/100); page(页码); start(显式偏移, 覆盖 page); time(hour/day/week/month/year); after/before(YYYY-MM-DD 自定义日期区间); hl(界面语言); gl(国家); lr(限定语言, 如 lang_zh-CN); cr(限定国家, 如 countryCN); safe(off/active); tbm(网页/新闻 nws/图片 isch/视频 vid); nfpr(关闭纠错); verbatim(逐字匹配); resolve_urls(解析跳转链接)。合并顺序: 请求参数 > 扩展设置页默认(/api/v1/search/google/defaults 查看) > 内置默认。每次调用约 5-15 秒。",
       post: {
         operationId: "googleSearchPost",
         summary: "谷歌搜索(POST JSON body, 中文免 URL 编码)",
@@ -398,7 +398,7 @@ module.exports = {
   tools: [
     {
       name: "google_search",
-      description: "谷歌搜索(实时驱动 Edge 打开 SERP 解析, 约 5-15 秒)。q 为基础查询词, 可含 site:/intitle:/inurl:/intext:/filetype:/link: 操作符、-排除词、\"精确短语\"、OR; 也可用结构化参数(列表参数传数组如 site:[\"github.com\"], 也接受逗号分隔字符串)。time 支持 hour/day/week/month/year; after/before 传 YYYY-MM-DD 自定义区间; hl/gl/lr/cr 控制语言地区; tbm=nws/isch/vid 切换新闻/图片/视频垂直; nfpr=true 关闭拼写纠错; verbatim=true 逐字匹配; resolve_urls=true 把谷歌跳转链接解析为真实 URL。中文查询词直接传(MCP 无 URL 编码问题)。参数优先级: 请求显式参数 > 扩展设置页默认 > 内置默认。",
+      description: "谷歌搜索(实时驱动浏览器打开 SERP 解析, 约 5-15 秒)。q 为基础查询词, 可含 site:/intitle:/inurl:/intext:/filetype:/link: 操作符、-排除词、\"精确短语\"、OR; 也可用结构化参数(列表参数传数组如 site:[\"github.com\"], 也接受逗号分隔字符串)。time 支持 hour/day/week/month/year; after/before 传 YYYY-MM-DD 自定义区间; hl/gl/lr/cr 控制语言地区; tbm=nws/isch/vid 切换新闻/图片/视频垂直; nfpr=true 关闭拼写纠错; verbatim=true 逐字匹配; resolve_urls=true 把谷歌跳转链接解析为真实 URL。中文查询词直接传(MCP 无 URL 编码问题)。参数优先级: 请求显式参数 > 扩展设置页默认 > 内置默认。",
       inputSchema: {
         type: "object",
         properties: {

@@ -50,7 +50,7 @@
       <div class="card">
         <h2>这是什么</h2>
         <p>
-          本扩展随附一个本地服务 (native host). 它驱动 Edge 浏览器, 把网页上的数据/操作
+          本扩展随附一个本地服务 (native host). 它驱动浏览器 (Edge / Chrome 通用), 把网页上的数据/操作
           暴露成一组可通过 HTTP 调用的 OpenAPI 接口. 无需任何命令行安装 —— 装好扩展即已就绪.
         </p>
       </div>
@@ -65,7 +65,7 @@
         <ol>
           <li>在扩展「<b>选项</b>」里配置监听地址与端口 (默认 <code>127.0.0.1:8090</code>).</li>
           <li>本地服务地址: <code id="svcAddr">http://127.0.0.1:8090</code></li>
-          <li>示例接口: <code>GET /api/v1/scnet/balance</code> (需 Edge 已登录 scnet).</li>
+          <li>示例接口: <code>GET /api/v1/scnet/balance</code> (需浏览器已登录 scnet).</li>
           <li>接口目录: <code>GET /api/v1/tools</code> · 接口文档: <code>GET /docs</code> · 服务说明: <code>GET /openapi.json</code></li>
         </ol>
       </div>
@@ -73,9 +73,9 @@
       <div class="card">
         <h2>使用前提</h2>
         <ol>
-          <li>已通过 <code>edge://extensions</code> (开发者模式) 加载本扩展一次.</li>
-          <li>已运行一次 <code>install-host.ps1</code> 注册 native messaging (一次即可).</li>
-          <li>Edge 已登录对应网站 (如 scnet.cn) 才能取到相关网页数据.</li>
+          <li>已通过 <code>edge://extensions</code> 或 <code>chrome://extensions</code> (开发者模式) 加载本扩展一次 —— <b>Edge / Chrome 通用</b>.</li>
+          <li>已运行一次 <code>install-host.ps1</code> 注册 native messaging (Edge 与 Chrome 两个注册表键会一起写上, 一次即可).</li>
+          <li>浏览器已登录对应网站 (如 scnet.cn) 才能取到相关网页数据; 登录态不跨浏览器共享.</li>
         </ol>
       </div>
 

@@ -50,7 +50,7 @@ function openApiSpec() {
     post: {
       summary: "透传调用任意浏览器工具(新能力入口)",
       operationId: "callTool",
-      description: "把任意浏览器工具透传给 Edge 扩展执行。固化端点(百度/谷歌搜索、SCNet 余额)覆盖不到的场景用它。",
+      description: "把任意浏览器工具透传给浏览器扩展(Edge / Chrome)执行。固化端点(百度/谷歌搜索、SCNet 余额)覆盖不到的场景用它。",
       parameters: [{ name: "name", in: "path", required: true, schema: { type: "string" } }],
       requestBody: {
         required: false,
@@ -75,7 +75,7 @@ function openApiSpec() {
     info: {
       title: "Web To OpenAPI",
       version: VERSION,
-      description: "独立 Edge 插件驱动的浏览器操作 HTTP API。不依赖 MCP 客户端; 底层经 native messaging 调用 chrome-mcp-server 的浏览器操作接口。",
+      description: "浏览器插件(Edge / Chrome 通用)驱动的浏览器操作 HTTP API, 一套代码同时提供 REST 与 MCP(/mcp)两套接口。不依赖 MCP 客户端; 底层经 native messaging 调用 chrome-mcp-server 的浏览器操作接口。",
     },
     servers: [{ url: base, description: "本地服务(可在 config.json 配置地址/端口)" }],
     paths,
