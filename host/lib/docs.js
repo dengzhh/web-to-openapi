@@ -8,12 +8,14 @@ const state = require("./state");
 const registry = require("./registry");
 
 function card(opts) {
-  const { method, path, note, button, curl } = opts;
+  const { method, path, note, button, curl, extra } = opts;
   const cls = method === "POST" ? "post" : "get";
   const btn = button === false ? "" : `\n    <button onclick="callApi('${button || path}')">试一下${opts.slow ? "(较慢)" : ""}</button>`;
   const pre = curl ? `\n<pre>${curl}</pre>` : "";
+  // extra: 端点自带的补充说明块(HTML), 由站点模块提供(例如翻译的语言清单)
+  const ex = extra ? `\n    <div class="extra">${extra}</div>` : "";
   return `  <div class="card"><span class="m ${cls}">${method}</span><span class="p">${path}</span>
-    <div class="d">${note}</div>${btn}${pre}
+    <div class="d">${note}</div>${ex}${btn}${pre}
   </div>`;
 }
 
@@ -58,6 +60,7 @@ function docsHtml() {
         button: doc.tryQuery || ep.path,
         curl: doc.curlGet,
         slow: !!doc.slow,
+        extra: doc.extra,
       }));
     }
     if (methods.includes("POST")) {
@@ -115,6 +118,14 @@ function docsHtml() {
   .p { font-family:ui-monospace,Consolas,monospace; font-size:13px; font-weight:600; }
   .d { color:var(--mut); font-size:13px; margin-top:6px; }
   pre { background:#0f172a; color:#e2e8f0; padding:12px 14px; border-radius:8px; font-size:12px; overflow:auto; margin:10px 0 0; }
+  .extra { margin-top:10px; font-size:12px; }
+  .extra details { border:1px solid var(--bd); border-radius:8px; padding:8px 12px; background:#fcfdfe; }
+  .extra summary { cursor:pointer; color:var(--fg); font-weight:600; font-size:12px; }
+  .extra table { border-collapse:collapse; width:100%; margin-top:8px; font-size:12px; }
+  .extra th, .extra td { border-bottom:1px solid var(--bd); padding:4px 6px; text-align:left; vertical-align:top; }
+  .extra th { color:var(--mut); font-weight:600; }
+  .extra code { background:#eef2f7; padding:1px 5px; border-radius:3px; font-family:ui-monospace,Consolas,monospace; }
+  .extra .mut { color:var(--mut); }
   button { background:var(--acc); color:#fff; border:0; border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; margin-top:10px; }
   button:hover { filter:brightness(1.1); }
   #out { white-space:pre-wrap; word-break:break-all; }

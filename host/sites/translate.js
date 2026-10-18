@@ -10,9 +10,12 @@
  * 参数:
  *   q       待翻译文本(必填, 上限 5000 字符 —— 百度网页版单次上限)
  *   from    源语言, 默认 auto(自动检测)
- *   to      目标语言, 默认 zh
+ *   to      目标语言, 默认 zh; 不接受 auto
  *   engine  引擎 id, 默认 baidu
  *   detail  是否附带词典/例句(默认 true; 不影响主流程, 解析失败只是返回空)
+ *
+ * from / to 的可选值由下面的 LANG_TABLE 定义(54 项, 每项都实测过), 并提供
+ * GET /api/v1/translate/engines 查询; 文档页会渲染成折叠表格。
  *
  * 一层薄抽象: 每个引擎只负责 "把参数拼成 URL -> 打开 -> 等译文稳定 -> 归一化返回",
  * 返回结构统一为 { translation, segments, from_label, to_label, dict, details_text }。
@@ -31,28 +34,127 @@ function badRequest(msg) {
 }
 
 /*
- * 语言代码映射(统一用 ISO 639-1 / 常见写法作为对外入参, 内部转成各站点的方言代码)。
- * 未收录的代码原样透传 —— 站点不认识时译文为空, 错误信息里会带上页面实际识别的语言标签, 便于排查。
+ * 语言表 —— 唯一事实源。对外代码、中文名、别名、文档清单、MCP 参数描述全部由它派生。
+ *
+ * 每一行的 code 都在百度翻译网页版**实测返回过对应语种的译文**(2026-10-18)。
+ * 为什么必须是白名单: 百度对不认识的语言代码不报错, 而是**静默回退成中文**——
+ * 实测 to=uk / tl / km / lo / ne / ur / fa / mong / kaz / uzb 全部返回 200,
+ * 但 to_label 变成「中文(简体)」、译文是中文。静默给错语种比直接报错危险得多,
+ * 所以未收录代码一律 400, 并提示可用值。
+ * (其中 uk / tl / lo / ne / ur / fa 的 ISO 简写已作为别名映射到正确代码。)
+ *
+ * aliases: ISO 639-1 / 639-2 或常见写法, 内部归一化成 code。
+ * sourceOnly: 只能作 from(目前仅 auto)。
  */
-const LANG = {
-  auto: "auto",
-  zh: "zh", "zh-cn": "zh", "zh-hans": "zh", chs: "zh",
-  "zh-tw": "cht", "zh-hant": "cht", cht: "cht",
-  en: "en", ja: "jp", jp: "jp", ko: "kor", kor: "kor",
-  fr: "fra", es: "spa", de: "de", ru: "ru", it: "it", pt: "pt",
-  ar: "ara", th: "th", vi: "vie", nl: "nl", pl: "pl", tr: "tr",
-};
+const LANG_TABLE = [
+  { code: "auto", label: "自动检测", aliases: ["detect", "none"], sourceOnly: true },
+  { code: "zh", label: "中文(简体)", aliases: ["zh-cn", "zh-hans", "chs", "cn", "simplified"] },
+  { code: "cht", label: "中文(繁体)", aliases: ["zh-tw", "zh-hk", "zh-hant", "tw", "traditional"] },
+  { code: "yue", label: "中文(粤语)", aliases: ["zh-yue", "cantonese"] },
+  { code: "wyw", label: "中文(文言文)", aliases: ["lzh", "classical"] },
+  { code: "en", label: "英语", aliases: ["eng"] },
+  { code: "jp", label: "日语", aliases: ["ja", "jpn"] },
+  { code: "kor", label: "韩语", aliases: ["ko", "kr"] },
+  { code: "fra", label: "法语", aliases: ["fr"] },
+  { code: "spa", label: "西班牙语", aliases: ["es"] },
+  { code: "de", label: "德语", aliases: ["ger", "deu"] },
+  { code: "ru", label: "俄语", aliases: ["rus"] },
+  { code: "it", label: "意大利语", aliases: ["ita"] },
+  { code: "pt", label: "葡萄牙语", aliases: ["por"] },
+  { code: "ara", label: "阿拉伯语", aliases: ["ar"] },
+  { code: "th", label: "泰语", aliases: ["tha"] },
+  { code: "vie", label: "越南语", aliases: ["vi"] },
+  { code: "nl", label: "荷兰语", aliases: ["dut", "nld"] },
+  { code: "pl", label: "波兰语", aliases: ["pol"] },
+  { code: "tr", label: "土耳其语", aliases: ["tur"] },
+  { code: "el", label: "希腊语", aliases: ["gre", "ell"] },
+  { code: "fin", label: "芬兰语", aliases: ["fi"] },
+  { code: "dan", label: "丹麦语", aliases: ["da"] },
+  { code: "swe", label: "瑞典语", aliases: ["sv"] },
+  { code: "cs", label: "捷克语", aliases: ["ces", "cz"] },
+  { code: "hu", label: "匈牙利语", aliases: ["hun"] },
+  { code: "rom", label: "罗马尼亚语", aliases: ["ro", "ron"] },
+  { code: "bul", label: "保加利亚语", aliases: ["bg"] },
+  { code: "ukr", label: "乌克兰语", aliases: ["uk"] },
+  { code: "heb", label: "希伯来语", aliases: ["he", "iw"] },
+  { code: "hi", label: "印地语", aliases: ["hin"] },
+  { code: "id", label: "印尼语", aliases: ["ind"] },
+  { code: "may", label: "马来语", aliases: ["ms", "msa"] },
+  { code: "bur", label: "缅甸语", aliases: ["my", "mya"] },
+  { code: "fil", label: "菲律宾语", aliases: ["tl", "tgl"] },
+  { code: "lao", label: "老挝语", aliases: ["lo"] },
+  { code: "nep", label: "尼泊尔语", aliases: ["ne"] },
+  { code: "urd", label: "乌尔都语", aliases: ["ur"] },
+  { code: "per", label: "波斯语", aliases: ["fa", "fas"] },
+  { code: "srp", label: "塞尔维亚语(拉丁文)", aliases: ["sr"] },
+  { code: "hrv", label: "克罗地亚语", aliases: ["hr"] },
+  { code: "sk", label: "斯洛伐克语", aliases: ["slk"] },
+  { code: "slo", label: "斯洛文尼亚语", aliases: ["sl", "slv"] },
+  { code: "lit", label: "立陶宛语", aliases: ["lt"] },
+  { code: "lav", label: "拉脱维亚语", aliases: ["lv"] },
+  { code: "est", label: "爱沙尼亚语", aliases: ["et"] },
+  { code: "nor", label: "挪威语", aliases: ["no", "nb"] },
+  { code: "ice", label: "冰岛语", aliases: ["is"] },
+  { code: "geo", label: "格鲁吉亚语", aliases: ["ka", "kat"] },
+  { code: "arm", label: "亚美尼亚语", aliases: ["hy"] },
+  { code: "aze", label: "阿塞拜疆语", aliases: ["az"] },
+  { code: "tam", label: "泰米尔语", aliases: ["ta"] },
+  { code: "tel", label: "泰卢固语", aliases: ["te"] },
+  { code: "mal", label: "马拉雅拉姆语", aliases: ["ml"] },
+  { code: "ben", label: "孟加拉语", aliases: ["bn"] },
+];
 
-const LANG_LABELS = {
-  auto: "自动检测", zh: "中文(简体)", cht: "中文(繁体)", en: "英语", jp: "日语", kor: "韩语",
-  fra: "法语", spa: "西班牙语", de: "德语", ru: "俄语", it: "意大利语", pt: "葡萄牙语",
-  ara: "阿拉伯语", th: "泰语", vie: "越南语", nl: "荷兰语", pl: "波兰语", tr: "土耳其语",
-};
+// 任意写法 -> 表项; 之后再补别名(不覆盖已注册的主代码)
+const LANG = new Map();
+for (const it of LANG_TABLE) LANG.set(it.code, it);
+for (const it of LANG_TABLE) for (const a of it.aliases) if (!LANG.has(a)) LANG.set(a, it);
 
-function normLang(v, fallback) {
-  const s = String(v == null ? "" : v).trim().toLowerCase();
-  if (!s) return fallback;
-  return LANG[s] ? s : s; // 未收录: 保留原样(透传), 由站点决定是否支持
+// 对外主代码(不含 auto 以外的 sourceOnly)
+const LANG_CODES = LANG_TABLE.filter((x) => !x.sourceOnly).map((x) => x.code);
+const LANG_SUMMARY = LANG_CODES.join(" ");
+const LANG_COUNT = LANG_CODES.length;
+const ALIAS_HINT = "别名: zh-CN / zh-TW / ja / ko / fr / es / ar / uk / fa ...";
+
+function normKey(v) {
+  return String(v == null ? "" : v).trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+// 解析并归一化语言参数; 未收录 -> 400(不静默回退)
+function resolveLang(raw, fallback, field) {
+  const key = normKey(raw);
+  if (!key) return fallback;
+  const hit = LANG.get(key);
+  if (!hit) {
+    throw badRequest(
+      `${field} 不支持的语言代码: "${raw}"。可用 ${LANG_COUNT} 种: ${LANG_SUMMARY}（${ALIAS_HINT}）。完整清单(含中文名/别名): GET /api/v1/translate/engines`
+    );
+  }
+  if (field === "to" && hit.sourceOnly) {
+    throw badRequest(`to 不能是 "${hit.code}": 目标语言必须明确, 只有 from 支持 auto 自动检测`);
+  }
+  return hit.code;
+}
+
+// 语言清单(给 /engines 与文档页用)
+function langList() {
+  return LANG_TABLE.map((x) => ({
+    code: x.code,
+    label: x.label,
+    aliases: x.aliases,
+    ...(x.sourceOnly ? { source_only: true } : {}),
+  }));
+}
+
+// 文档页用的语言表格(折叠展示, 避免刷屏)
+function langTableHtml() {
+  const rows = LANG_TABLE.map(
+    (x) =>
+      `<tr><td><code>${x.code}</code></td><td>${x.label}${x.sourceOnly ? ' <span class="mut">(仅 from)</span>' : ""}</td><td class="mut">${x.aliases.join(" / ") || "—"}</td></tr>`
+  ).join("");
+  return `<details><summary>from / to 可用值：${LANG_COUNT} 种语言 + auto（点击展开）</summary>
+      <table><thead><tr><th>代码</th><th>语言</th><th>可接受的别名</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="mut" style="margin-top:6px">未收录的代码会直接返回 <code>400</code>——百度对不认识的目标语言会静默回退成中文译文，所以这里不做透传。只想核对方向时看返回的 <code>from_label</code> / <code>to_label</code>。</div>
+    </details>`;
 }
 
 /*
@@ -130,11 +232,10 @@ const ENGINES = {
   baidu: {
     id: "baidu",
     title: "百度翻译",
-    langs: Object.keys(LANG_LABELS),
+    langs: LANG_CODES,
     buildUrl(p) {
-      const from = LANG[String(p.from).toLowerCase()] || p.from;
-      const to = LANG[String(p.to).toLowerCase()] || p.to;
-      return `https://fanyi.baidu.com/mtpe-individual/multimodal?query=${encodeURIComponent(p.q)}&lang=${from}2${to}`;
+      // p.from / p.to 已在 parseRequest 里归一化成主代码
+      return `https://fanyi.baidu.com/mtpe-individual/multimodal?query=${encodeURIComponent(p.q)}&lang=${p.from}2${p.to}`;
     },
     async translate(p) {
       const page = await openPage(this.buildUrl(p));
@@ -165,8 +266,8 @@ function parseRequest(input) {
   }
   const q = (sp.get("q") || sp.get("text") || "").trim();
   const engine = (sp.get("engine") || "baidu").trim().toLowerCase();
-  const from = normLang(sp.get("from"), "auto");
-  const to = normLang(sp.get("to") || sp.get("target"), "zh");
+  const from = resolveLang(sp.get("from") || sp.get("source"), "auto", "from");
+  const to = resolveLang(sp.get("to") || sp.get("target"), "zh", "to");
   const detailRaw = sp.get("detail");
   const detail = detailRaw == null ? true : /^(1|true|yes)$/i.test(detailRaw);
   return { q, engine, from, to, detail };
@@ -181,6 +282,14 @@ async function translate(p) {
   const t0 = Date.now();
   const r = await engine.translate(p);
   if (!r.translation) throw new Error(`${engine.title} 返回空译文`);
+
+  // 方向兜底: 白名单已挡住"未知代码静默回退中文", 这里再核一次页面实际识别的目标语言,
+  // 万一百度改版/某组合不受支持, 调用方能从 to_label_mismatch 立刻发现而不是拿到错语种的译文。
+  const expectTo = (LANG.get(p.to) || {}).label || null;
+  const mismatch = !!(expectTo && r.to_label && r.to_label !== expectTo);
+  if (mismatch) {
+    log("warn", `translate[${engine.id}] 目标语言不符: 请求 ${p.to}(${expectTo}) 实际 ${r.to_label}`);
+  }
   log("info", `translate[${engine.id}] ${p.from}->${p.to} ${p.q.length} chars in ${Date.now() - t0}ms`);
 
   return {
@@ -192,6 +301,7 @@ async function translate(p) {
     to: p.to,
     from_label: r.from_label,
     to_label: r.to_label,
+    ...(mismatch ? { to_label_mismatch: true } : {}),
     text: p.q,
     translation: r.translation,
     segments: r.segments,
@@ -203,8 +313,14 @@ async function translate(p) {
 
 const ENGINES_INFO = () => ({
   engines: Object.values(ENGINES).map((e) => ({ id: e.id, title: e.title, langs: e.langs })),
+  languages: langList(),
+  langs: LANG_CODES,
+  lang_count: LANG_COUNT,
   default_engine: "baidu",
+  default_from: "auto",
+  default_to: "zh",
   max_text_chars: MAX_TEXT,
+  note: "from / to 只接受下表 languages 里的 code 或其 aliases。未收录代码直接 400 —— 百度对不认识的目标语言会静默回退成中文, 所以不做透传。",
 });
 
 module.exports = {
@@ -218,7 +334,7 @@ module.exports = {
       tool: "translate_text",
       operationId: "translateText",
       summary: "在线翻译(统一入口, engine 切换引擎)",
-      description: "实时驱动浏览器(Edge / Chrome)打开在线翻译站点, 返回译文。参数: q(待翻译文本, 上限 5000 字符)、from(源语言, 默认 auto)、to(目标语言, 默认 zh)、engine(默认 baidu)、detail(是否附带词典/例句, 默认 true)。当前支持引擎: baidu(百度翻译)。中文文本推荐用 POST 传 JSON body: GET 的查询串必须做 URL 编码。每次调用约 5-10 秒。",
+      description: `实时驱动浏览器(Edge / Chrome)打开在线翻译站点, 返回译文。参数: q(待翻译文本, 上限 5000 字符)、from(源语言, 默认 auto)、to(目标语言, 默认 zh)、engine(默认 baidu)、detail(是否附带词典/例句, 默认 true)。from / to 支持 ${LANG_COUNT} 种语言代码及 ISO 别名(如 zh-CN / zh-TW / ja / ko / fr / es), 完整清单见 GET /api/v1/translate/engines 的 languages 字段或 /docs 文档页; 未收录的代码返回 400 -- 百度对不认识的目标语言会静默回退成中文, 因此不做透传。当前支持引擎: baidu(百度翻译)。中文文本推荐用 POST 传 JSON body: GET 的查询串必须做 URL 编码。每次调用约 3-6 秒。`,
       post: {
         operationId: "translateTextPost",
         summary: "在线翻译(POST JSON body, 中文免 URL 编码)",
@@ -234,7 +350,8 @@ module.exports = {
       parse: parseRequest,
       run: (p) => translate(p),
       doc: {
-        note: "在线翻译统一入口。<code>engine</code> 切换引擎(当前 <code>baidu</code>); <code>from=auto</code> 自动检测; <code>to</code> 默认中文。返回 <code>translation</code>(整段译文)、<code>segments</code>(按行拆分)、<code>dict</code>(重点词汇)、<code>details_text</code>(词典+例句原文)。单次上限 5000 字符, 约 5-10 秒。",
+        note: `在线翻译统一入口。<code>engine</code> 切换引擎(当前 <code>baidu</code>); <code>from=auto</code> 自动检测; <code>to</code> 默认中文。返回 <code>translation</code>(整段译文)、<code>segments</code>(按行拆分)、<code>dict</code>(重点词汇)、<code>details_text</code>(词典+例句原文)。单次上限 5000 字符, 约 3-6 秒。<br><code>from</code> / <code>to</code> 支持 <b>${LANG_COUNT} 种语言代码</b> + ISO 别名(<code>zh-CN</code> / <code>zh-TW</code> / <code>ja</code> / <code>ko</code> / <code>fr</code> / <code>es</code> ...), 清单见下方折叠表或 <code>GET /api/v1/translate/engines</code>。返回的 <code>from_label</code> / <code>to_label</code> 是页面实际识别的语言, 可用来核对方向。`,
+        extra: langTableHtml(),
         tryQuery: "/api/v1/translate?q=The%20quick%20brown%20fox%20jumps%20over%20the%20lazy%20dog.&from=en&to=zh",
         curlGet: `curl -s "http://127.0.0.1:8090/api/v1/translate?q=hello%20world&from=en&to=zh&engine=baidu"`,
         curlPost: `curl -s -X POST http://127.0.0.1:8090/api/v1/translate \\
@@ -260,13 +377,13 @@ module.exports = {
     {
       name: "translate_text",
       description:
-        "在线翻译: 实时驱动浏览器打开在线翻译站点并返回译文(约 5-10 秒)。q=待翻译文本(上限 5000 字符); from=源语言(默认 auto 自动检测); to=目标语言(默认 zh 中文); engine=引擎(默认 baidu, 用 translate_engines 查看可用值); detail=false 时跳过词典/例句以加快返回。返回 translation(整段译文)、segments(按行拆分)、dict(重点词汇数组)、details_text(词典与例句原文)。中文文本直接传即可(MCP 无 URL 编码问题)。",
+        `在线翻译: 实时驱动浏览器打开在线翻译站点并返回译文(约 3-6 秒)。q=待翻译文本(上限 5000 字符); from=源语言(默认 auto 自动检测); to=目标语言(默认 zh 中文); engine=引擎(默认 baidu, 用 translate_engines 查看可用值); detail=false 时跳过词典/例句以加快返回。from/to 支持 ${LANG_COUNT} 种语言代码及 ISO 别名(如 ja/ko/fr/es/zh-CN/zh-TW), 完整清单用 translate_engines 查 languages 字段; 未收录代码会返回错误(百度对不认识的目标语言会静默回退成中文, 故不做透传)。返回 translation(整段译文)、segments(按行拆分)、dict(重点词汇数组)、details_text(词典与例句原文)、from_label/to_label(页面实际识别的语言, 用于核对方向)。中文文本直接传即可(MCP 无 URL 编码问题)。`,
       inputSchema: {
         type: "object",
         properties: {
           q: { type: "string", description: "待翻译文本(必填, 上限 5000 字符; 超长请自行分段)" },
-          from: { type: "string", description: "源语言代码(默认 auto 自动检测); 常用: auto/zh/en/jp/kor/fra/spa/de/ru", default: "auto" },
-          to: { type: "string", description: "目标语言代码(默认 zh 中文); 常用: zh/cht/en/jp/kor/fra/spa/de/ru", default: "zh" },
+          from: { type: "string", description: `源语言代码(默认 auto 自动检测)。可用: ${LANG_SUMMARY}。${ALIAS_HINT}`, default: "auto" },
+          to: { type: "string", description: `目标语言代码(默认 zh 中文, 不支持 auto)。可用: ${LANG_SUMMARY}。${ALIAS_HINT}`, default: "zh" },
           engine: { type: "string", description: "翻译引擎 id(默认 baidu); 用 translate_engines 查看全部可用值", default: "baidu" },
           detail: { type: "boolean", description: "是否附带词典/例句(默认 true); 设为 false 可略微加快返回", default: true },
         },
@@ -277,7 +394,7 @@ module.exports = {
     },
     {
       name: "translate_engines",
-      description: "列出可用的翻译引擎: 返回每个引擎的 id、名称、支持的语言代码, 以及单次文本字符上限。用返回的 id 作为 translate_text 的 engine 参数。",
+      description: `列出可用的翻译引擎(id / 名称)与全部语言代码: languages 每项含 code、中文名 label、可接受的 aliases; langs 是纯代码数组(${LANG_COUNT} 项, 含 auto)。用返回的 code 作为 translate_text 的 from/to。`,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       run: () => ENGINES_INFO(),
     },

@@ -191,7 +191,7 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | `baidu_search_defaults` | `GET /api/v1/search/baidu/defaults` | 百度三层默认参数 |
 | `google_search_defaults` | `GET /api/v1/search/google/defaults` | 谷歌三层默认参数 |
 | `translate_text` | `GET\|POST /api/v1/translate` | 在线翻译，`engine` 切换引擎（当前百度） |
-| `translate_engines` | `GET /api/v1/translate/engines` | 可用翻译引擎与语言代码 |
+| `translate_engines` | `GET /api/v1/translate/engines` | 可用翻译引擎 + 54 种语言代码（含中文名与别名） |
 | `service_health` | `GET /health` | 服务健康状态（监听/扩展连通/运行时长） |
 | `browser_tool` | `POST /api/v1/tools/{name}` | 透传任意 chrome_* 浏览器工具 |
 
@@ -215,9 +215,9 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开谷歌解析结果（约 5-15s） |
 | POST | `/api/v1/search/google` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
 | GET | `/api/v1/search/google/defaults` | 查看谷歌搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
-| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），约 3-10s |
+| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），约 3-6s。`from`/`to` 可选 54 种语言代码，见下文清单 |
 | POST | `/api/v1/translate` | 同上，JSON body 传参——**中文文本推荐用这个** |
-| GET | `/api/v1/translate/engines` | 可用翻译引擎与支持的语言代码 |
+| GET | `/api/v1/translate/engines` | 可用翻译引擎 + 54 种语言代码（`languages[].code/label/aliases`） |
 | GET | `/api/v1/tools` | 可用浏览器操作工具目录 |
 | POST | `/api/v1/tools/{name}` | 透传调用任意浏览器工具（搜索、抓取等新能力的统一入口） |
 
@@ -336,11 +336,26 @@ curl -s -X POST http://127.0.0.1:8090/api/v1/translate \
 curl -s http://127.0.0.1:8090/api/v1/translate/engines
 ```
 
-参数：`q`（必填，上限 5000 字符）· `from`（默认 `auto`）· `to`（默认 `zh`）· `engine`（默认 `baidu`）· `detail`（是否附带词典/例句，默认 `true`）。
+参数：`q`（必填，上限 5000 字符）· `from`（默认 `auto`，`auto` 只在 `from` 可用）· `to`（默认 `zh`）· `engine`（默认 `baidu`）· `detail`（是否附带词典/例句，默认 `true`）。
 
-返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `elapsed_ms`。
+#### `from` / `to` 的语言代码（54 种）
 
-实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false` 均通过，单次约 **3-5 秒**。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
+每个代码都在百度翻译网页版实测出过对应语种的译文（2026-10），下面括号里是同样接受的 ISO 别名：
+
+- **中文系**：`zh` 中文简体（`zh-CN` / `chs` / `cn`）· `cht` 中文繁体（`zh-TW` / `zh-HK`）· `yue` 粤语 · `wyw` 文言文
+- **常用语种**：`en` 英语 · `jp` 日语（`ja`）· `kor` 韩语（`ko`）· `fra` 法语（`fr`）· `spa` 西班牙语（`es`）· `de` 德语 · `ru` 俄语 · `it` 意大利语 · `pt` 葡萄牙语 · `ara` 阿拉伯语（`ar`）· `th` 泰语 · `vie` 越南语（`vi`）· `nl` 荷兰语 · `pl` 波兰语 · `tr` 土耳其语
+- **欧洲其他**：`el` 希腊语 · `fin` 芬兰语（`fi`）· `dan` 丹麦语（`da`）· `swe` 瑞典语（`sv`）· `cs` 捷克语 · `hu` 匈牙利语 · `rom` 罗马尼亚语（`ro`）· `bul` 保加利亚语（`bg`）· `ukr` 乌克兰语（`uk`）· `srp` 塞尔维亚语（`sr`）· `hrv` 克罗地亚语（`hr`）· `sk` 斯洛伐克语 · `slo` 斯洛文尼亚语（`sl`）· `lit` 立陶宛语（`lt`）· `lav` 拉脱维亚语（`lv`）· `est` 爱沙尼亚语（`et`）· `nor` 挪威语（`no`）· `ice` 冰岛语（`is`）· `geo` 格鲁吉亚语（`ka`）· `arm` 亚美尼亚语（`hy`）· `aze` 阿塞拜疆语（`az`）
+- **亚洲其他**：`heb` 希伯来语（`he`）· `hi` 印地语 · `id` 印尼语 · `may` 马来语（`ms`）· `bur` 缅甸语（`my`）· `fil` 菲律宾语（`tl`）· `lao` 老挝语（`lo`）· `nep` 尼泊尔语（`ne`）· `urd` 乌尔都语（`ur`）· `per` 波斯语（`fa`）· `tam` 泰米尔语（`ta`）· `tel` 泰卢固语（`te`）· `mal` 马拉雅拉姆语（`ml`）· `ben` 孟加拉语（`bn`）
+
+机器可读的完整清单（含每项的 `label` 与 `aliases`）：`GET /api/v1/translate/engines` 的 `languages` 字段，文档页 `/docs` 也有同源折叠表格。
+
+> **未收录的代码直接返回 `400`，不做透传。** 原因是实测发现百度对不认识的目标语言**不报错，而是静默回退成中文**——`to=uk` / `tl` / `km` / `lo` / `ne` / `ur` / `fa` / `mong` / `kaz` / `uzb` 全部返回 `200`，但 `to_label` 变成「中文(简体)」、译文是中文。静默给错语种比报错危险得多（调用方会以为翻译成功了），所以这里宁可 400。其中 `uk` / `tl` / `lo` / `ne` / `ur` / `fa` 这类 ISO 简写已映射到正确代码，`km`（高棉语）、`mong`、`kaz`、`uzb` 网页版确实不支持。
+>
+> 另有一层运行时兜底：返回时会核对页面实际识别的目标语言，若与请求的代码不符，响应里会多出 `"to_label_mismatch": true`（正常情况下不会出现）。
+
+返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `elapsed_ms`。
+
+实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过，单次约 **3-6 秒**；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
 
 **为什么只接了百度**：翻译站的官方 API 普遍按字符计费，而免费网页版基本不限量，这才是「把网页变成 API」的收益所在。百度网页版免登录、URL 带参直达、DOM 结构清楚，是投入产出比最高的一个。其它站点实测结论：Google 翻译页面在国内网络下加载不出来（但它的免费 HTTP 端点可直连，不需要浏览器）；DeepL 页面能开，但 `#en/zh/文本` 带参已失效，需要注入文本 + 先切目标语言；Reverso / Linguee 有 Cloudflare 人机验证，自动化不可用；火山翻译官网已 404。
 
