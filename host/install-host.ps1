@@ -45,7 +45,17 @@ if (Test-Path $ExtManifest) {
 }
 
 $json = $m | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText($Manifest, $json, [System.Text.Encoding]::UTF8)
+# [System.Text.Encoding]::UTF8 is UTF8Encoding(true) in Windows PowerShell: it prepends a
+# UTF-8 BOM on EVERY write. RFC 8259 forbids a BOM in JSON and strict parsers reject such
+# files, so re-running this script would reintroduce the BOM. Write without it instead.
+[System.IO.File]::WriteAllText($Manifest, $json, (New-Object System.Text.UTF8Encoding($false)))
+
+# Hard check: the manifest must not start with EF BB BF.
+$head = [System.IO.File]::ReadAllBytes($Manifest)
+if ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) {
+    Write-Error "[verify] FAILED - manifest was written with a UTF-8 BOM"
+    exit 1
+}
 
 if (-not (Test-Path $m.path)) { Write-Error "host launcher not found: $($m.path)"; exit 1 }
 Write-Host "[info] manifest:" $Manifest

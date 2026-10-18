@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "com.webtoopenapi.host",
     "description":  "Web To OpenAPI - Node.js host for the browser extension (Edge/Chrome); exposes browser automation as a local OpenAPI HTTP service (REST + MCP at /mcp).",
     "path":  "C:\\path\\to\\web-to-openapi\\host\\run_host.bat",
