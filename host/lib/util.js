@@ -5,6 +5,7 @@
  */
 const { callTool } = require("./nm");
 const { log } = require("./log");
+const { CONFIG } = require("./config");
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -30,17 +31,106 @@ function strList(v) {
   return arr.map((s) => String(s == null ? "" : s).trim()).filter(Boolean);
 }
 
-// 打开新窗口并返回 tabId(浏览器窗口会互抢焦点, 调用方需包在 withBrowserLock 里)
-async function openPage(url) {
-  const data = await callTool("chrome_navigate", { url, newWindow: true, background: false, width: 1280, height: 900 });
-  const m = dataText(data).match(/"tabId"\s*:\s*(\d+)/);
-  return m ? parseInt(m[1], 10) : null;
+/*
+ * 页面打开策略(核心: 默认不在用户面前弹窗)。
+ *
+ * 上游 chrome_navigate 的两条分支:
+ *   传 newWindow/width/height -> chrome.windows.create({focused: background ? false : true})
+ *   否则                       -> chrome.tabs.create({windowId: 最近聚焦窗口, active: !background})
+ *
+ * 四种模式(opts.siteMode 为站点声明, config.page_mode 为全局强制):
+ *   "tab"          在最近窗口开**后台标签**: 不新建窗口、不抢焦点, 用户基本无感。
+ *                  ⚠ 后台标签会被 Chromium 调度节流: 实测谷歌 SERP 要 20s 才渲染出结果,
+ *                  而可见(哪怕未激活)的窗口 5s 就完整。轻量页面(百度/翻译/scnet)几乎无损。
+ *   "window"       独立窗口但不激活(focused:false): 渲染优先级正常, 任务完成关标签窗口自动消失。
+ *   "window-front" 独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点, 只在调试时用。
+ *   "auto"         按站点自选: 站点声明了 siteMode 就用它, 没声明就用 tab。
+ *
+ * 浏览器 API 没有"完全隐藏窗口"的能力(offscreen 文档不能导航任意站点), 所以
+ * tab 是"看起来什么都没发生"的最优解; 需要人介入时用 needsHuman() 显式切到前台。
+ */
+const PAGE_MODES = ["auto", "tab", "window", "window-front"];
+
+async function openPage(url, opts) {
+  const o = opts || {};
+  const global = PAGE_MODES.includes(CONFIG.page_mode) ? CONFIG.page_mode : "auto";
+  const site = PAGE_MODES.includes(o.siteMode) && o.siteMode !== "auto" ? o.siteMode : (PAGE_MODES.includes(o.mode) ? o.mode : null);
+  const mode = global === "auto" ? (site || "tab") : global;
+  const args = { url };
+  if (mode === "window" || mode === "window-front") {
+    args.newWindow = true;
+    args.width = o.width || 1280;
+    args.height = o.height || 900;
+    args.background = mode === "window"; // window: 不激活; window-front: 抢焦点
+  } else {
+    args.background = true; // 复用最近窗口, 后台标签, 不激活
+    if (o.windowId) args.windowId = o.windowId;
+  }
+  const data = await callTool("chrome_navigate", args);
+  const text = dataText(data);
+  const tabM = text.match(/"tabId"\s*:\s*(\d+)/);
+  const winM = text.match(/"windowId"\s*:\s*(\d+)/);
+  const page = {
+    tabId: tabM ? parseInt(tabM[1], 10) : null,
+    windowId: winM ? parseInt(winM[1], 10) : null,
+    mode,
+    keepOpen: false,
+  };
+  if (page.tabId == null) throw new Error("打开页面失败(未拿到 tabId): " + String(text).slice(0, 200));
+  log("browser", `open page mode=${mode} tab=${page.tabId} win=${page.windowId} url=${url.slice(0, 120)}`);
+  return page;
+}
+
+// 把标签页切到前台并激活其所在窗口。仅用于"需要人工介入"的场景。
+async function focusTab(page) {
+  const tabId = typeof page === "number" ? page : page && page.tabId;
+  const windowId = typeof page === "object" && page ? page.windowId : null;
+  if (tabId == null) return false;
+  try {
+    const args = { tabId };
+    if (windowId != null) args.windowId = windowId;
+    await callTool("chrome_switch_tab", args, 15000);
+    log("browser", `focus tab=${tabId} win=${windowId}`);
+    return true;
+  } catch (e) {
+    log("warn", `focus tab ${tabId} failed: ${e.message}`);
+    return false;
+  }
+}
+
+/*
+ * 需要人工介入(登录 / 人机验证 / 同意页):
+ *   1) 把页面切到前台(此时才"打开窗口", 用户一眼能看到要做什么);
+ *   2) 标记 keepOpen, 让 finally 里的 closePage 不要关掉 —— 关掉用户就得自己重找页面;
+ *   3) 抛 503, 响应里带 needs_human 与 hint, 调用方(含 AI)知道这是可恢复的人为阻塞。
+ */
+async function needsHuman(page, reason, hint) {
+  if (page && typeof page === "object") page.keepOpen = true;
+  const shown = await focusTab(page);
+  const tail = shown
+    ? "已把页面切到前台, 请在该标签页完成操作后重试"
+    : "请手动打开对应网站完成操作后重试";
+  const e = new Error(`${reason} —— ${tail}`);
+  e.status = 503;
+  e.needs_human = true;
+  e.hint = hint || "该接口复用你浏览器里已有的登录态; 遇到登录/验证码时会把页面切到前台, 处理完再次调用即可。";
+  throw e;
 }
 
 async function closeTab(tabId) {
   if (tabId == null) return;
   try { await callTool("chrome_close_tabs", { tabIds: [tabId] }, 20000); }
   catch (e) { log("warn", `close tab ${tabId} failed: ${e.message}`); }
+}
+
+// 关闭 openPage 返回的页面; keepOpen=true(需要人工)时保留
+async function closePage(page) {
+  if (!page || typeof page !== "object") return closeTab(page);
+  if (page.keepOpen) {
+    log("browser", `keep tab=${page.tabId} open for manual step`);
+    return;
+  }
+  await closeTab(page.tabId);
 }
 
 /*
@@ -94,7 +184,8 @@ function decodeUrlCodes(codes) {
  * 所以要等 readyState=complete + 结果容器出现 + 条目数连续两轮稳定(每轮 1s)。
  * opts:
  *   flag      结果容器标志字段名(如 hasLeft / hasRso)
- *   guards(d) 提前判定: 直接抛错(反爬/consent 之类不可恢复的情况)
+ *   guards(d) 提前判定: 抛错(反爬/consent)或提前返回(零结果页); 支持 async
+ *             (需要在抛错前把页面切到前台时, 写成 async 并 await needsHuman)
  *   stopWhen(d) 返回 true 时立即结束重试并原样返回(如谷歌明确返回零结果页)
  */
 async function extractSerp(tabId, code, opts) {
@@ -106,19 +197,33 @@ async function extractSerp(tabId, code, opts) {
   let d = null;
   for (let i = 0; i < tries; i++) {
     d = await jsEval(tabId, code, { maxOutputBytes: 262144 });
-    if (o.guards) o.guards(d, i, tries);
+    if (o.guards) await o.guards(d, i, tries);
     if (o.stopWhen && o.stopWhen(d)) return d;
     if (d && d.parse_error && i === tries - 1) {
       throw new Error("搜索结果提取失败(响应被拦截或解析失败): " + d.parse_error);
     }
     const n = d && Array.isArray(d.items) ? d.items.length : 0;
-    const loaded = d && d.ready === "complete" && d[flag];
-    if (n > 0 && loaded && n === lastCount) return d;
+    // 有结果 + 结果容器在 = 可用。readyState 只作辅助判断:
+    // 谷歌有长连接时可能长期停在 interactive/loading(后台标签更明显), 只看 complete 会白等到超时。
+    const loaded = !!(d && d[flag] && (d.ready === "complete" || n > 0));
+    // 稳定性还要求"条目够多或已 complete": SERP 渐进渲染, 只按"两次读数相等"会在
+    // 第 1 条出现时就早退(实测谷歌只返回 1 条)。
+    const stable = n > 0 && n === lastCount && (d.ready === "complete" || n >= 5);
+    if (loaded && stable) return d;
     if (!loaded && i === tries - 1) {
       log("warn", `${label} page not fully loaded after ${tries}s: ${JSON.stringify({ ready: d && d.ready, [flag]: d && d[flag], bodyLen: d && d.bodyLen })}`);
     }
     lastCount = n;
     await sleep(1000);
+  }
+  // body 完全为空 = 导航根本没开始。最常见原因不是站点挂了, 而是浏览器窗口被最小化/完全遮挡:
+  // Chromium 对不可见标签会冻结渲染与网络(实测谷歌 28s 才开始 loading)。给出可操作的提示,
+  // 比安静地返回 0 条有用得多。
+  if (d && d.bodyLen === 0 && !(d.items && d.items.length)) {
+    const e = new Error(`${label} 页面没有渲染出任何内容: 浏览器窗口可能被最小化或完全遮挡, Chromium 会冻结不可见标签的加载`);
+    e.status = 504;
+    e.hint = "把浏览器窗口切到前台(最小化恢复到屏幕可见即可, 不需要操作)后重试; 或在本机 host/config.json 设 page_mode=\"window-front\", 让接口在需要时自己把窗口切到前台。";
+    throw e;
   }
   return d;
 }
@@ -181,7 +286,7 @@ function paramList(sp, name) {
 function truthy(v) { return /^(1|true|yes)$/i.test(String(v || "")); }
 
 module.exports = {
-  sleep, dataText, num, strList, openPage, closeTab, jsEval, decodeUrlCodes,
-  extractSerp, followRedirect, resolveLinks, toSearchParams, paramList, truthy, UA,
-  withBrowserLock, callTool,
+  sleep, dataText, num, strList, openPage, closeTab, closePage, focusTab, needsHuman,
+  jsEval, decodeUrlCodes, extractSerp, followRedirect, resolveLinks, toSearchParams,
+  paramList, truthy, UA, withBrowserLock, callTool, PAGE_MODES,
 };

@@ -31,7 +31,7 @@
  */
 const { createDefaultsStore } = require("../lib/defaults");
 const {
-  openPage, closeTab, extractSerp, decodeUrlCodes, resolveLinks,
+  openPage, closePage, needsHuman, extractSerp, decodeUrlCodes, resolveLinks,
   toSearchParams, paramList, truthy, strList,
 } = require("../lib/util");
 
@@ -297,14 +297,20 @@ function redirectTarget(link) {
 
 async function search(p) {
   const built = buildUrl(p);
-  const tabId = await openPage(built.url);
+  // 谷歌 SERP 渲染重: 后台标签会被 Chromium 调度节流, 实测 15s 才开始出结果、约 20s 完整
+  // (前台窗口 5s)。也曾试过"独立窗口但不激活", 但 focused:false 的窗口一旦被判为遮挡,
+  // renderer 同样被冻结(实测 20s 仍 bodyLen=0), 反而不如后台标签可预测。
+  // 所以这里坚持后台标签(不弹窗), 只把等待上限放宽到 20 轮; 需要更快可在 config 设 page_mode=window-front。
+  const page = await openPage(built.url);
   try {
-    const raw = await extractSerp(tabId, EXTRACT_JS, {
+    const raw = await extractSerp(page.tabId, EXTRACT_JS, {
       flag: "hasRso",
       label: "google",
-      guards: (d) => {
-        if (d && d.consent) throw new Error("谷歌返回 consent 同意页: 请在浏览器(Edge / Chrome)里手动打开 google.com 完成一次搜索/同意后重试");
-        if (d && d.captcha) throw new Error("谷歌反爬验证(unusual traffic): 请在浏览器(Edge / Chrome)里手动打开 google.com 完成一次搜索后重试");
+      tries: 20,
+      // 同意页/反爬验证: 把标签页切到前台让用户处理, 并保留页面(不自动关闭)
+      guards: async (d) => {
+        if (d && d.consent) await needsHuman(page, "谷歌返回 consent 同意页");
+        if (d && d.captcha) await needsHuman(page, "谷歌反爬验证(unusual traffic)");
       },
       // 合法的零结果页: 不用再等 12 秒
       stopWhen: (d) => !!(d && d.noResult && !d.hasRso),
@@ -344,7 +350,7 @@ async function search(p) {
       items,
     };
   } finally {
-    await closeTab(tabId);
+    await closePage(page); // 正常关闭; 遇到需要人工介入时保留(见 needsHuman)
   }
 }
 

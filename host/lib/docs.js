@@ -22,10 +22,26 @@ const NOTICE_CARD = `  <div class="card" style="border-color:#f59e0b; background
     <div class="d">GET 的查询串不允许出现未编码的非 ASCII 字符——<code>?q=人工智能</code> 会被 HTTP 协议层直接拒绝, 返回 <code>400 Bad Request</code>(空响应体)。两种正确做法: ① 对参数做 URL 编码(<code>?q=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD</code>); ② <b>推荐</b>: 改用下方 <code>POST</code> 接口, JSON body 里中文无需任何编码。</div>
   </div>`;
 
+// 页面打开策略(来自 config.page_mode): 读者最关心"会不会弹窗", 放在最前面
+function pageCard() {
+  const mode = CONFIG.page_mode;
+  const desc = {
+    auto: "按站点自选(当前各站点均为后台标签)",
+    tab: "在后台标签打开: 不新建窗口、不抢焦点, 提取完自动关闭",
+    window: "独立窗口但不激活, 关标签后窗口随之消失",
+    "window-front": "独立窗口并激活(每次调用都会弹窗抢焦点)",
+  }[mode] || mode;
+  return `  <div class="card" style="border-color:#0ea5e9; background:#f0f9ff">
+    <span class="m" style="background:#e0f2fe; color:#075985">页面</span><span class="p">打开策略: ${mode}</span>
+    <div class="d">${desc}。遇到登录 / 人机验证时会把页面切到前台并<b>保留</b>(不自动关闭), 同时返回 <code>503</code> + <code>needs_human: true</code>, 处理完再调一次即可。<br>浏览器窗口被最小化或完全遮挡时, Chromium 会冻结不可见标签的渲染 → 可能 20s 以上甚至返回 <code>504</code>; 把窗口露出来即恢复。修改 <code>host/config.json</code> 的 <code>page_mode</code> 或设环境变量 <code>WEBTOOPENAPI_PAGE_MODE</code>。</div>
+  </div>`;
+}
+
 function docsHtml() {
   const base = `http://${CONFIG.host}:${state.httpPort || CONFIG.port}`;
   const cards = [];
   let noticeInserted = false;
+  cards.push(pageCard());
 
   for (const ep of registry.allEndpoints()) {
     const methods = ep.methods || [ep.method || "GET"];

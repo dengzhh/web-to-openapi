@@ -6,7 +6,7 @@
  * 但转轮外层 .d-roll-wrapper 的 aria-label 保存真实值(无障碍标签),
  * 故用 chrome_javascript 抓 aria-label; 免费额度页表格是纯文本亦可直接解析。
  */
-const { openPage, closeTab, jsEval, sleep, num } = require("../lib/util");
+const { openPage, closePage, needsHuman, jsEval, sleep, num } = require("../lib/util");
 
 const FREE_URL = "https://www.scnet.cn/ui/console/index.html#/llm/free-credit";
 const PLAN_URL = "https://www.scnet.cn/ui/console/index.html#/llm/token-plan";
@@ -37,11 +37,25 @@ async function extractWithRetry(tabId, tries = 8) {
   return d;
 }
 
+// 未登录会跳到登录页(表面上仍在原 hash 路由, 但 body 只剩登录表单, 转轮一个都没有)
+function looksLikeLogin(d) {
+  const rolls = d && Array.isArray(d.rolls) ? d.rolls : [];
+  if (rolls.length) return false;
+  const t = String((d && d.text) || "");
+  return /扫码登录|账号登录|密码登录|立即登录|请先登录|登录后查看/.test(t);
+}
+
 async function fetchPage(url) {
-  const tabId = await openPage(url);
-  const data = await extractWithRetry(tabId);
-  await closeTab(tabId);
-  return data;
+  const page = await openPage(url);
+  try {
+    const data = await extractWithRetry(page.tabId);
+    // 需要登录: 把页面切到前台, 处理完再调用(页面保留, 不自动关闭)
+    if (looksLikeLogin(data)) await needsHuman(page, "scnet 控制台需要登录");
+    return data;
+  } finally {
+    // 原来没有 try/finally: 提取抛错时标签会泄漏在用户窗口里
+    await closePage(page);
+  }
 }
 
 function parseFree(d) {

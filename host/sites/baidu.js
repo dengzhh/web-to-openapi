@@ -18,7 +18,7 @@
  */
 const { createDefaultsStore } = require("../lib/defaults");
 const {
-  openPage, closeTab, jsEval, extractSerp, decodeUrlCodes, resolveLinks,
+  openPage, closePage, needsHuman, jsEval, extractSerp, decodeUrlCodes, resolveLinks,
   toSearchParams, paramList, truthy,
 } = require("../lib/util");
 
@@ -149,13 +149,14 @@ return {items:items,total:totalM?parseInt(totalM[1].replace(/,/g,''),10):null,ca
 
 async function search(p) {
   const built = buildUrl(p);
-  const tabId = await openPage(built.url);
+  const page = await openPage(built.url);
   try {
-    const raw = await extractSerp(tabId, EXTRACT_JS, {
+    const raw = await extractSerp(page.tabId, EXTRACT_JS, {
       flag: "hasLeft",
       label: "baidu",
-      guards: (d) => {
-        if (d && d.captcha) throw new Error("百度安全验证(反爬): 请在浏览器(Edge / Chrome)里手动打开百度完成一次搜索/验证后重试");
+      guards: async (d) => {
+        // 反爬验证页: 把标签页切到前台让用户过验证, 并保留页面(不自动关闭)
+        if (d && d.captcha) await needsHuman(page, "百度安全验证(反爬)");
       },
     });
     let items = (raw.items || []).map((it) => {
@@ -183,7 +184,7 @@ async function search(p) {
       items,
     };
   } finally {
-    await closeTab(tabId);
+    await closePage(page); // 正常关闭; 遇到需要人工介入时保留(见 needsHuman)
   }
 }
 

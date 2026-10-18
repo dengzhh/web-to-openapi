@@ -181,7 +181,10 @@ async function handleRequest(req, res) {
       });
     }
     // 站点可用 e.status 主动声明状态码(如参数校验失败抛 400), 未声明则按 500 处理
-    return done(Number.isFinite(e.status) ? e.status : 500, { error: e.message, path: pathname });
+    const body = { error: e.message, path: pathname };
+    if (e.needs_human) body.needs_human = true; // 503: 需要人工登录/验证, 处理后可重试
+    if (e.hint) body.hint = e.hint;
+    return done(Number.isFinite(e.status) ? e.status : 500, body);
   }
 }
 

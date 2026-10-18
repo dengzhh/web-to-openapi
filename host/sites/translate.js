@@ -18,7 +18,7 @@
  * 返回结构统一为 { translation, segments, from_label, to_label, dict, details_text }。
  */
 
-const { openPage, closeTab, jsEval, sleep } = require("../lib/util");
+const { openPage, closePage, jsEval, sleep } = require("../lib/util");
 const { log } = require("../lib/log");
 
 const MAX_TEXT = 5000;
@@ -137,9 +137,9 @@ const ENGINES = {
       return `https://fanyi.baidu.com/mtpe-individual/multimodal?query=${encodeURIComponent(p.q)}&lang=${from}2${to}`;
     },
     async translate(p) {
-      const tabId = await openPage(this.buildUrl(p));
+      const page = await openPage(this.buildUrl(p));
       try {
-        const d = await waitBaidu(tabId);
+        const d = await waitBaidu(page.tabId);
         return {
           translation: d.translation,
           segments: d.segments || [],
@@ -149,7 +149,7 @@ const ENGINES = {
           details_text: p.detail === false ? "" : (d.details_text || ""),
         };
       } finally {
-        await closeTab(tabId);
+        await closePage(page);
       }
     },
   },

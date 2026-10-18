@@ -3,7 +3,7 @@
  * 站点: 服务自身能力(不属于任何具体网页)
  * 与站点模块同构, 因此 health / browser_tool 也自动出现在 MCP 工具列表与文档里。
  */
-const { CONFIG, SERVICE, VERSION } = require("../lib/config");
+const { CONFIG, SERVICE, VERSION, PAGE_MODES } = require("../lib/config");
 const state = require("../lib/state");
 const nm = require("../lib/nm");
 const { callTool, withBrowserLock } = require("../lib/util");
@@ -16,6 +16,9 @@ function health() {
     listen: `http://${CONFIG.host}:${state.httpPort || CONFIG.port}`,
     extension_connected: nm.isConnected(),
     uptime_s: state.startedAt ? Math.floor((Date.now() - state.startedAt.getTime()) / 1000) : null,
+    // 页面打开策略: tab(后台标签, 默认, 不弹窗) / window(不激活的独立窗口) / window-front(弹窗)
+    page_mode: CONFIG.page_mode,
+    page_modes: PAGE_MODES,
   };
 }
 
@@ -35,16 +38,16 @@ module.exports = {
       tool: "service_health",
       operationId: "health",
       summary: "存活探针",
-      description: "存活探针: 服务状态、扩展连接状态、运行时长。",
+      description: "存活探针: 服务状态、扩展连接状态、运行时长、当前页面打开策略(page_mode)。",
       responses: { 200: { description: "服务状态" } },
       run: health,
-      doc: { note: "存活探针: 服务状态、扩展连接状态、运行时长。" },
+      doc: { note: "存活探针: 服务状态、扩展连接状态、运行时长、当前页面打开策略(page_mode)。" },
     },
   ],
   tools: [
     {
       name: "service_health",
-      description: "查看 web-to-openapi 服务健康状态。返回 {status,service,version,listen,extension_connected,uptime_s}: 服务是否在监听、浏览器扩展(Edge / Chrome)是否连通、运行时长(秒)。",
+      description: "查看 web-to-openapi 服务健康状态。返回 {status,service,version,listen,extension_connected,uptime_s,page_mode}: 服务是否在监听、浏览器扩展(Edge / Chrome)是否连通、运行时长(秒)、当前页面打开策略(tab=后台标签不弹窗, window=不激活的独立窗口, window-front=弹窗)。",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       run: health,
     },
