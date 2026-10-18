@@ -18,6 +18,7 @@ const sites = [
   require("./scnet"),
   require("./baidu"),
   require("./google"),
+  require("./translate"), // 在线翻译: 统一入口 + 引擎表(加引擎只改 translate.js 里的 ENGINES)
 ];
 
 for (const s of sites) registry.register(s);

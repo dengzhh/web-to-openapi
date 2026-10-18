@@ -180,7 +180,8 @@ async function handleRequest(req, res) {
         path: pathname,
       });
     }
-    return done(500, { error: e.message, path: pathname });
+    // 站点可用 e.status 主动声明状态码(如参数校验失败抛 400), 未声明则按 500 处理
+    return done(Number.isFinite(e.status) ? e.status : 500, { error: e.message, path: pathname });
   }
 }
 

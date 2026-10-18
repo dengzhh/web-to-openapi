@@ -37,7 +37,7 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 | `extension/` | 独立浏览器扩展（**Edge / Chrome 通用**；从 `chrome-mcp-server-1.0.0` 复制改造：新密钥/新 ID、宿主名改为 `com.webtoopenapi.host`、品牌重命名为 Web To OpenAPI、内置 Options 设置页） |
 | `host/openapi-host.js` | **启动入口（薄）**：装配站点注册表 → native messaging → HTTP 服务 |
 | `host/lib/` | 基础设施：`config` 配置 / `log` 日志 / `nm` native messaging 命令通道 / `util` 浏览器操作（开页·执行 JS·重试提取·链接还原）/ `defaults` 默认参数三层合并 / `registry` 站点注册表 / `mcp` MCP 协议 / `spec` `/openapi.json` / `docs` `/docs` 文档页 / `tools` 浏览器工具目录 / `http` 路由分发 |
-| `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js`（以及服务自身的 `_service.js`）。新增能力只在这里加文件，见「新增一个网页」 |
+| `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js` / `translate.js`（在线翻译，内部用引擎表聚合多站点）+ 服务自身的 `_service.js`。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
 | `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）——仅当「插件设置」未配置时生效 |
 | `host/run_host.bat` | 浏览器拉起 host 的启动器（自动找 node.exe；Edge / Chrome 走同一个） |
@@ -154,6 +154,8 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | `google_search` | `GET\|POST /api/v1/search/google` | 谷歌搜索，完整高级参数 |
 | `baidu_search_defaults` | `GET /api/v1/search/baidu/defaults` | 百度三层默认参数 |
 | `google_search_defaults` | `GET /api/v1/search/google/defaults` | 谷歌三层默认参数 |
+| `translate_text` | `GET\|POST /api/v1/translate` | 在线翻译，`engine` 切换引擎（当前百度） |
+| `translate_engines` | `GET /api/v1/translate/engines` | 可用翻译引擎与语言代码 |
 | `service_health` | `GET /health` | 服务健康状态（监听/扩展连通/运行时长） |
 | `browser_tool` | `POST /api/v1/tools/{name}` | 透传任意 chrome_* 浏览器工具 |
 
@@ -177,6 +179,9 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开谷歌解析结果（约 5-15s） |
 | POST | `/api/v1/search/google` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
 | GET | `/api/v1/search/google/defaults` | 查看谷歌搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
+| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），约 3-10s |
+| POST | `/api/v1/translate` | 同上，JSON body 传参——**中文文本推荐用这个** |
+| GET | `/api/v1/translate/engines` | 可用翻译引擎与支持的语言代码 |
 | GET | `/api/v1/tools` | 可用浏览器操作工具目录 |
 | POST | `/api/v1/tools/{name}` | 透传调用任意浏览器工具（搜索、抓取等新能力的统一入口） |
 
@@ -277,6 +282,33 @@ curl -s "http://127.0.0.1:8090/api/v1/search/google?q=AI&tbm=nws"   # 新闻垂�
 返回字段：`query`（最终生效的查询词）/ `page` / `num` / `start` / `time` / `after` / `before` / `total`（谷歌结果数，best-effort）/ `count` / `page_loaded`（SERP 是否完整加载）/ `no_result`（true = 谷歌明确返回零结果页，与「页面没加载完」区分）/ `items[]`，每项含 `title` / `url` / `real_url`（resolve_urls=true 时）/ `abstract` / `date`（如「2024年3月22日」「Jan 1, 2024」「3天前」）/ `is_ad`（是否推广）。
 
 > 注意：谷歌在部分网络环境下会返回 consent 同意页或反爬验证页（`/sorry/`），此时接口返回明确错误提示，按提示在浏览器（Edge / Chrome）里手动完成一次搜索/验证后重试即可。
+
+### 在线翻译：统一入口 + 引擎表
+
+翻译没有做成「一个站点一个端点」，而是**一个入口 + `engine` 参数**——调用方不用记多个路径，加引擎也不影响已有调用：
+
+```bash
+# GET（英文/短文本）
+curl -s "http://127.0.0.1:8090/api/v1/translate?q=hello%20world&from=en&to=zh"
+
+# POST（中文推荐：body 里的中文不用 URL 编码）
+curl -s -X POST http://127.0.0.1:8090/api/v1/translate \
+  -H "Content-Type: application/json" \
+  -d '{"q":"今天天气很好，我们去公园散步吧。","from":"zh","to":"en","engine":"baidu"}'
+
+# 查看可用引擎与语言代码
+curl -s http://127.0.0.1:8090/api/v1/translate/engines
+```
+
+参数：`q`（必填，上限 5000 字符）· `from`（默认 `auto`）· `to`（默认 `zh`）· `engine`（默认 `baidu`）· `detail`（是否附带词典/例句，默认 `true`）。
+
+返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `elapsed_ms`。
+
+实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false` 均通过，单次约 **3-5 秒**。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
+
+**为什么只接了百度**：翻译站的官方 API 普遍按字符计费，而免费网页版基本不限量，这才是「把网页变成 API」的收益所在。百度网页版免登录、URL 带参直达、DOM 结构清楚，是投入产出比最高的一个。其它站点实测结论：Google 翻译页面在国内网络下加载不出来（但它的免费 HTTP 端点可直连，不需要浏览器）；DeepL 页面能开，但 `#en/zh/文本` 带参已失效，需要注入文本 + 先切目标语言；Reverso / Linguee 有 Cloudflare 人机验证，自动化不可用；火山翻译官网已 404。
+
+**加一个引擎**：在 `host/sites/translate.js` 的 `ENGINES` 里加一项（`buildUrl` + `translate`），路由 / MCP 工具 / `openapi.json` / 文档页全部自动沿用。需要「注入文本 + 点按钮」的引擎，用 `chrome_fill_or_select` / `chrome_click_element` 组合即可，结构不用改。
 
 ### 在插件设置页配置默认查询参数
 
