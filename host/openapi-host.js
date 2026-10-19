@@ -47,6 +47,7 @@
 const { CONFIG, SERVICE, VERSION } = require("./lib/config");
 const { log } = require("./lib/log");
 const nm = require("./lib/nm");
+const util = require("./lib/util");
 const registry = require("./lib/registry");
 const httpSvc = require("./lib/http");
 
@@ -65,7 +66,12 @@ log("info", `sites: ${registry.all().map((s) => s.id).join(", ")}; routes: ${rou
 nm.registerHook(registry.handleNm);
 registry.initAll(); // 从磁盘恢复各站点默认参数
 
-nm.setStartHandler(() => httpSvc.startHttpLazy());
+nm.setStartHandler(async () => {
+  const port = await httpSvc.startHttpLazy();
+  // 顺手关掉上次运行遗留的复用标签(host 被强杀时来不及清理, 池子记录已落盘)
+  util.closeOrphanTabs().catch((e) => log("warn", "closeOrphanTabs failed: " + e.message));
+  return port;
+});
 nm.setStopHandler(() => httpSvc.stopHttp());
 
 nm.startStdio();

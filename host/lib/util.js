@@ -3,9 +3,11 @@
  * 站点模块共用的浏览器操作与小工具。
  * 本文件只依赖 nm(命令通道) 与 log, 不认识任何具体站点。
  */
+const fs = require("fs");
+const path = require("path");
 const { callTool } = require("./nm");
 const { log } = require("./log");
-const { CONFIG } = require("./config");
+const { CONFIG, STATE_DIR } = require("./config");
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -150,7 +152,45 @@ async function closePage(page) {
  * 注意: replaceState 不产生历史记录(用 pushState 会让后退键变成翻历史译文)。
  * 换参前校验 location.host —— 防止用户把这个标签页导航到别处后我们改错页面。
  */
-const PAGE_POOL = new Map(); // key -> { tabId, timer }
+const PAGE_POOL = new Map(); // key -> { tabId, timer, host }
+
+// 池里的 tabId 落盘: host 被强杀(Stop-Process / 崩溃)时来不及跑清理, 下次启动据此关掉残留标签
+const POOL_STATE = path.join(STATE_DIR, "webtoopenapi", "pool-tabs.json");
+
+function savePoolState() {
+  try {
+    const obj = {};
+    for (const [k, e] of PAGE_POOL) {
+      if (e && e.tabId != null) obj[k] = { tabId: e.tabId, host: e.host || null };
+    }
+    fs.mkdirSync(path.dirname(POOL_STATE), { recursive: true });
+    fs.writeFileSync(POOL_STATE, JSON.stringify(obj));
+  } catch (e) { /* 清理用辅助信息, 写失败不影响主流程 */ }
+}
+
+/*
+ * 关闭上次运行遗留的复用标签(host 被杀 / 扩展重载时池子记录会丢)。
+ * 关掉前先确认这个标签还在原站点上 —— 万一用户把它改作了别用, 就别动它。
+ */
+async function closeOrphanTabs() {
+  let obj = null;
+  try { obj = JSON.parse(fs.readFileSync(POOL_STATE, "utf8")); } catch (e) { return 0; }
+  let n = 0;
+  for (const it of Object.values(obj || {})) {
+    if (!it || it.tabId == null) continue;
+    try {
+      if (it.host) {
+        const r = await jsEval(it.tabId, "return { host: String(location.host) };", { timeoutMs: 6000 });
+        if (!r || r.host !== it.host) continue; // 已经不是我们的页面了
+      }
+      await closeTab(it.tabId);
+      n++;
+    } catch (e) { /* 标签早就没了 */ }
+  }
+  try { fs.unlinkSync(POOL_STATE); } catch (e) { /* ignore */ }
+  if (n) log("info", `closed ${n} leftover reused tab(s) from previous run`);
+  return n;
+}
 
 function poolKey(k) { return String(k || "default"); }
 
@@ -195,6 +235,7 @@ async function dropPooled(key, close) {
   if (!e) return;
   clearPoolTimer(e);
   PAGE_POOL.delete(k);
+  savePoolState();
   if (close && e.tabId != null) await closeTab(e.tabId);
 }
 
@@ -228,7 +269,8 @@ async function reloadInTab(tabId, url) {
 function setPooledTab(key, tabId, mode) {
   const k = poolKey(key);
   const old = PAGE_POOL.get(k);
-  PAGE_POOL.set(k, { tabId, mode: mode || (old && old.mode) || null, timer: old ? old.timer : null });
+  PAGE_POOL.set(k, { tabId, mode: mode || (old && old.mode) || null, timer: old ? old.timer : null, host: (old && old.host) || null });
+  savePoolState();
 }
 
 /*
@@ -259,7 +301,8 @@ async function acquirePooled(key, url, opts) {
     }
   }
   const page = await openPage(url, opts);
-  PAGE_POOL.set(k, { tabId: page.tabId, mode: page.mode, timer: null });
+  PAGE_POOL.set(k, { tabId: page.tabId, mode: page.mode, timer: null, host: new URL(url).host });
+  savePoolState();
   armPoolTimer(k);
   return { tabId: page.tabId, warm: false, mode: page.mode };
 }
@@ -421,4 +464,5 @@ module.exports = {
   jsEval, decodeUrlCodes, extractSerp, followRedirect, resolveLinks, toSearchParams,
   paramList, truthy, UA, withBrowserLock, callTool, PAGE_MODES,
   acquirePooled, dropPooled, touchPooled, armPoolTimer, swapUrlInTab, reloadInTab, setPooledTab,
+  closeOrphanTabs,
 };
