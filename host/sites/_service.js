@@ -19,6 +19,8 @@ function health() {
     // 页面打开策略: tab(后台标签, 默认, 不弹窗) / window(不激活的独立窗口) / window-front(弹窗)
     page_mode: CONFIG.page_mode,
     page_modes: PAGE_MODES,
+    // 标签页复用窗口(毫秒): 这段时间内重复调用不重载网页; 0 = 不复用
+    keep_tab_ms: CONFIG.keep_tab_ms,
   };
 }
 

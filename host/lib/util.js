@@ -134,6 +134,137 @@ async function closePage(page) {
 }
 
 /*
+ * 页面复用池 —— 让"同一个站点连续调用"省掉网页加载时间。
+ *
+ * 背景: 每次调用都新开标签页 + 关标签页, 那么第 2 次调用仍然要重新加载整站(JS/CSS/接口),
+ * 实测百度翻译冷启动 ~4.2s, 其中约 1.6s 纯粹是页面加载。而页面本身只要还活着,
+ * 改动 URL 查询串就能触发一次新翻译(SPA 监听 popstate), 完全不需要重载文档。
+ *
+ * 做法:
+ *   1) 首次调用 openPage() 正常打开, 把 tabId 记进池子, **不关**;
+ *   2) 之后同一 key 的调用先试 swapUrlInTab(): replaceState + 派发 popstate —— 页内换参, 0 重载;
+ *   3) 页内换参不可用(标签被关/被用户改作别用/页面不监听 popstate) → 退化为在原标签页重载;
+ *      再不行才新开一个。三级降级, 任何一级失败都不影响正确性。
+ *   4) 空闲超过 CONFIG.keep_tab_ms 毫秒后自动关闭标签页(默认 3 分钟, 0 表示不复用直接关)。
+ *
+ * 注意: replaceState 不产生历史记录(用 pushState 会让后退键变成翻历史译文)。
+ * 换参前校验 location.host —— 防止用户把这个标签页导航到别处后我们改错页面。
+ */
+const PAGE_POOL = new Map(); // key -> { tabId, timer }
+
+function poolKey(k) { return String(k || "default"); }
+
+function poolEntry(key) {
+  const e = PAGE_POOL.get(poolKey(key));
+  return e && e.tabId != null ? e : null;
+}
+
+function clearPoolTimer(e) {
+  if (e && e.timer) { clearTimeout(e.timer); e.timer = null; }
+}
+
+// 只在需要复用时挂空闲计时(不关页面)。给 acquire 阶段用: 刚打开/刚复用的页面不能立刻关掉。
+function armPoolTimer(key) {
+  const k = poolKey(key);
+  const e = PAGE_POOL.get(k);
+  if (!e) return;
+  clearPoolTimer(e);
+  const ms = CONFIG.keep_tab_ms;
+  if (!(ms > 0)) return; // 不复用: 由调用方在本次调用结束后关闭
+  e.timer = setTimeout(() => { dropPooled(k, true).catch(() => {}); }, ms);
+  if (e.timer.unref) e.timer.unref(); // 不因为"等关闭"而拖住进程退出
+}
+
+// 重置空闲计时; keep_tab_ms<=0 时立刻关闭(等于关闭复用) —— 给"本次调用结束"时用
+function touchPooled(key, keepMs) {
+  const k = poolKey(key);
+  const e = PAGE_POOL.get(k);
+  if (!e) return;
+  clearPoolTimer(e);
+  const ms = keepMs == null ? CONFIG.keep_tab_ms : keepMs;
+  if (!ms || ms <= 0) {
+    // 不复用: 立刻关掉(不要留下"池里还有条目但不关"的状态, 否则下次会误复用旧页面)
+    return dropPooled(k, true).catch(() => {});
+  }
+  armPoolTimer(k);
+}
+
+async function dropPooled(key, close) {
+  const k = poolKey(key);
+  const e = PAGE_POOL.get(k);
+  if (!e) return;
+  clearPoolTimer(e);
+  PAGE_POOL.delete(k);
+  if (close && e.tabId != null) await closeTab(e.tabId);
+}
+
+/*
+ * 在已打开的标签页里换 URL 查询串, 不重载文档。失败抛错(调用方自行降级)。
+ */
+async function swapUrlInTab(tabId, absUrl) {
+  const u = new URL(absUrl);
+  const rel = u.pathname + u.search;
+  const code = `
+const want = ${JSON.stringify(u.host)};
+if (location.host !== want) return { ok:false, wrongHost:String(location.host).slice(0,60) };
+history.replaceState({}, '', ${JSON.stringify(rel)});
+window.dispatchEvent(new PopStateEvent('popstate'));
+return { ok:true, path:location.pathname };
+`;
+  const r = await jsEval(tabId, code, { timeoutMs: 8000 });
+  if (r && r.wrongHost) throw new Error(`标签页已不是目标站点(${r.wrongHost})`);
+  if (!r || r.ok !== true) throw new Error("页内换参未生效: " + JSON.stringify(r).slice(0, 120));
+  return true;
+}
+
+// 在原标签页里重载目标 URL(页内换参不生效时的降级); tabId 变了就返回新的
+async function reloadInTab(tabId, url) {
+  const text = dataText(await callTool("chrome_navigate", { url, tabId, background: true }, 25000));
+  if (/"success"\s*:\s*false/.test(text)) throw new Error(String(text).slice(0, 160));
+  const m = text.match(/"tabId"\s*:\s*(\d+)/);
+  return m ? parseInt(m[1], 10) : tabId;
+}
+
+function setPooledTab(key, tabId, mode) {
+  const k = poolKey(key);
+  const old = PAGE_POOL.get(k);
+  PAGE_POOL.set(k, { tabId, mode: mode || (old && old.mode) || null, timer: old ? old.timer : null });
+}
+
+/*
+ * 复用或新开: 返回 { tabId, warm, mode }
+ * warm=true 表示没有重载文档(纯页内换参), 这是"第 2 次调用更快"的关键。
+ */
+async function acquirePooled(key, url, opts) {
+  const k = poolKey(key);
+  const e = poolEntry(k);
+  if (e) {
+    try {
+      await swapUrlInTab(e.tabId, url);
+      armPoolTimer(k);
+      log("browser", `reuse page key=${k} tab=${e.tabId} (页内换参, 未重载)`);
+      return { tabId: e.tabId, warm: true, mode: e.mode || null };
+    } catch (err) {
+      log("warn", `reuse page key=${k} 页内换参失败: ${err.message}; 退化为原标签页重载`);
+      try {
+        const tabId = await reloadInTab(e.tabId, url);
+        setPooledTab(k, tabId, e.mode);
+        armPoolTimer(k);
+        log("browser", `reload pooled tab=${tabId} url=${url.slice(0, 100)}`);
+        return { tabId, warm: false, mode: e.mode || null };
+      } catch (err2) {
+        log("warn", `reuse page key=${k} 原标签页重载也失败: ${err2.message}; 新开标签页`);
+        await dropPooled(k, false);
+      }
+    }
+  }
+  const page = await openPage(url, opts);
+  PAGE_POOL.set(k, { tabId: page.tabId, mode: page.mode, timer: null });
+  armPoolTimer(k);
+  return { tabId: page.tabId, warm: false, mode: page.mode };
+}
+
+/*
  * 在标签页里执行提取脚本并取回对象。
  * 两个防过滤要点(chrome_javascript 的响应会被扩展侧 sanitize):
  *   1) 页面内不要返回 location.href 等完整带参 URL(只回 path/hostname);
@@ -289,4 +420,5 @@ module.exports = {
   sleep, dataText, num, strList, openPage, closeTab, closePage, focusTab, needsHuman,
   jsEval, decodeUrlCodes, extractSerp, followRedirect, resolveLinks, toSearchParams,
   paramList, truthy, UA, withBrowserLock, callTool, PAGE_MODES,
+  acquirePooled, dropPooled, touchPooled, armPoolTimer, swapUrlInTab, reloadInTab, setPooledTab,
 };

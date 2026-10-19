@@ -20,6 +20,11 @@ const DEFAULT_CONFIG = {
   //   "window"       一律独立窗口但不激活(focused:false)
   //   "window-front" 独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点
   page_mode: "auto",
+  // 页面复用: 同一站点连续调用时, 标签页保留多久(毫秒)后自动关闭。
+  //   0      = 不复用, 每次调用结束就关(旧行为, 每次都重新加载网页)
+  //   180000 = 3 分钟(默认): 这段时间内的重复调用不再加载网页, 实测百度翻译 4.2s -> 2.6s
+  // 只影响"我们自己开的那个后台标签", 不影响用户自己的标签页。
+  keep_tab_ms: 180000,
 };
 
 function loadConfig() {
@@ -37,6 +42,7 @@ function loadConfig() {
     if (fileCfg.port) cfg.port = parseInt(fileCfg.port, 10);
     if (fileCfg.tool_timeout_ms) cfg.tool_timeout_ms = parseInt(fileCfg.tool_timeout_ms, 10);
     if (fileCfg.page_mode) cfg.page_mode = String(fileCfg.page_mode).trim().toLowerCase();
+    if (fileCfg.keep_tab_ms != null) cfg.keep_tab_ms = parseInt(fileCfg.keep_tab_ms, 10);
   } catch (e) {
     cfg.warnings.push(`config.json 读取失败(${e.message}), 使用默认/环境变量配置`);
   }
@@ -44,6 +50,11 @@ function loadConfig() {
   if (process.env.WEBTOOPENAPI_PORT) cfg.port = parseInt(process.env.WEBTOOPENAPI_PORT, 10);
   if (process.env.WEBTOOPENAPI_TOOL_TIMEOUT_MS) cfg.tool_timeout_ms = parseInt(process.env.WEBTOOPENAPI_TOOL_TIMEOUT_MS, 10);
   if (process.env.WEBTOOPENAPI_PAGE_MODE) cfg.page_mode = process.env.WEBTOOPENAPI_PAGE_MODE.trim().toLowerCase();
+  if (process.env.WEBTOOPENAPI_KEEP_TAB_MS) cfg.keep_tab_ms = parseInt(process.env.WEBTOOPENAPI_KEEP_TAB_MS, 10);
+  if (!(cfg.keep_tab_ms >= 0)) {
+    cfg.warnings.push(`keep_tab_ms "${cfg.keep_tab_ms}" 不合法(应为 >=0 的毫秒数, 0=不复用), 已回退为 180000`);
+    cfg.keep_tab_ms = 180000;
+  }
   if (!PAGE_MODES.includes(cfg.page_mode)) {
     cfg.warnings.push(`page_mode "${cfg.page_mode}" 不合法(可选 ${PAGE_MODES.join(" / ")}), 已回退为 auto`);
     cfg.page_mode = "auto";

@@ -39,7 +39,7 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 | `host/lib/` | 基础设施：`config` 配置 / `log` 日志 / `nm` native messaging 命令通道 / `util` 浏览器操作（开页·执行 JS·重试提取·链接还原）/ `defaults` 默认参数三层合并 / `registry` 站点注册表 / `mcp` MCP 协议 / `spec` `/openapi.json` / `docs` `/docs` 文档页 / `tools` 浏览器工具目录 / `http` 路由分发 |
 | `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js` / `translate.js`（在线翻译，内部用引擎表聚合多站点）+ 服务自身的 `_service.js`。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
-| `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）——仅当「插件设置」未配置时生效 |
+| `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）、页面打开策略（`page_mode`）、标签页复用窗口（`keep_tab_ms`）——仅当「插件设置」未配置时生效 |
 | `host/run_host.bat` | 浏览器拉起 host 的启动器（自动找 node.exe；Edge / Chrome 走同一个） |
 | `host/com.webtoopenapi.host.json` | native messaging manifest（`allowed_origins` = 扩展 ID，安装时自动推导，无需手改） |
 | `host/install-host.ps1` | 注册/注销 native host（写 HKCU 注册表，无需管理员，Edge + Chrome 双键） |
@@ -134,6 +134,27 @@ Chrome 用户请注意三点：
 
 > 同理，百度 / 翻译 / SCNet 这类轻页面在 `tab` 模式下几乎不受影响（实测 3~4 秒），只有谷歌这种重渲染页面敏感。
 
+### 重复调用不再重新加载网页（`keep_tab_ms`）
+
+「每次调用都新开标签、用完就关」有个隐藏代价：第 2、3 次调用仍然要**重新加载整站**。翻译接口实测，其中约 1.5 秒纯粹是页面加载。所以加了标签页复用：
+
+| `keep_tab_ms` | 行为 |
+|---|---|
+| `180000`（默认，3 分钟） | 同一个站点连续调用时，保留标签页；这段时间内的调用**只改页面里的查询串**，不重载文档 |
+| `0` | 关闭复用：每次调用结束就关标签页（旧行为，每次都重新加载） |
+
+也可以临时改一次：`WEBTOOPENAPI_KEEP_TAB_MS=0` 环境变量。`/health` 会回显当前值。
+
+实现上是三级降级，任何一级失败都只影响速度、不影响正确性：
+
+1. **页内换参**（最快）：确认标签页还在目标站点 → `history.replaceState` 改查询串 + 派发 `popstate`，SPA 自己重新翻译；
+2. 换参没生效（页面正忙 / 标签被用户关了 / 改作别用）→ 在这个标签页里**重载**目标 URL；
+3. 重载也失败 → 新开一个标签页。
+
+此外，**与上一次完全相同的请求**（同方向、同文本）会在 `keep_tab_ms` 窗口内直接返回上次结果，毫秒级、不碰浏览器。响应里 `reused: true` 表示复用了页面，`cached: true` 表示命中上次结果。
+
+> 复用页面会带来一个必须防的坑：页面上还留着上一题的译文，只看「拿到了译文」会把**上一题的答案**当成本次结果返回（实测两段等长文本 `…test one.` / `…test two.` 就中招）。所以判定标准是：页面左栏的**源文本与本次请求一致**，且译文区被清空/替换过，才开始接受译文。
+
 ## 验证
 
 ```bash
@@ -215,7 +236,7 @@ curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
 | GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开谷歌解析结果（约 5-15s） |
 | POST | `/api/v1/search/google` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
 | GET | `/api/v1/search/google/defaults` | 查看谷歌搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
-| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），约 3-6s。`from`/`to` 可选 54 种语言代码，见下文清单 |
+| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），首次约 3-5s，之后再调约 2s（复用页面）。`from`/`to` 可选 54 种语言代码，见下文清单 |
 | POST | `/api/v1/translate` | 同上，JSON body 传参——**中文文本推荐用这个** |
 | GET | `/api/v1/translate/engines` | 可用翻译引擎 + 54 种语言代码（`languages[].code/label/aliases`） |
 | GET | `/api/v1/tools` | 可用浏览器操作工具目录 |
@@ -353,9 +374,19 @@ curl -s http://127.0.0.1:8090/api/v1/translate/engines
 >
 > 另有一层运行时兜底：返回时会核对页面实际识别的目标语言，若与请求的代码不符，响应里会多出 `"to_label_mismatch": true`（正常情况下不会出现）。
 
-返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `elapsed_ms`。
+返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `reused`（本次是否复用了已打开的页面）· `cached`（是否命中上一次相同请求的结果）· `elapsed_ms`。
 
-实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过，单次约 **3-6 秒**；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
+实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
+
+**速度**（同一台机器、连续调用实测）：
+
+| 场景 | 耗时 | 说明 |
+|---|---|---|
+| 首次调用 | **3.5-5.2 秒** | 要加载百度翻译整站（JS / CSS / 首屏） |
+| `keep_tab_ms` 内的后续调用 | **2.0-2.8 秒** | 只改页面里的查询串，不重载文档（`reused: true`） |
+| 与上一次完全相同的请求 | **4-5 毫秒** | 直接返回上次结果（`cached: true`） |
+
+省下来的基本就是页面加载那 1.5 秒；剩下的 2 秒是百度 AI 翻译自己的生成时间（流式输出，实测首字 ~1.8 秒、结束 ~2.3 秒），换机换网都在这个量级。顺带测过页面上的「机翻 · 通用领域」档位，只比 AI 档快 0.4 秒，不值得为它增加一套切换逻辑。
 
 **为什么只接了百度**：翻译站的官方 API 普遍按字符计费，而免费网页版基本不限量，这才是「把网页变成 API」的收益所在。百度网页版免登录、URL 带参直达、DOM 结构清楚，是投入产出比最高的一个。其它站点实测结论：Google 翻译页面在国内网络下加载不出来（但它的免费 HTTP 端点可直连，不需要浏览器）；DeepL 页面能开，但 `#en/zh/文本` 带参已失效，需要注入文本 + 先切目标语言；Reverso / Linguee 有 Cloudflare 人机验证，自动化不可用；火山翻译官网已 404。
 
