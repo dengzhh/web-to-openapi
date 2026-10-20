@@ -378,9 +378,22 @@ curl -s http://127.0.0.1:8090/api/v1/translate/engines
 >
 > 另有一层运行时兜底：返回时会核对页面实际识别的目标语言，若与请求的代码不符，响应里会多出 `"to_label_mismatch": true`（正常情况下不会出现）。
 
-返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `dict`（重点词汇 `[{word, defs}]`）· `details_text`（词典与例句原文，best-effort）· `reused`（本次是否复用了已打开的页面）· `cached`（是否命中上一次相同请求的结果）· `elapsed_ms`。
+返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `reused`（本次是否复用了已打开的页面）· `cached`（是否命中上一次相同请求的结果）· `elapsed_ms`。
 
-实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版。
+**学习资料**（`detail=true` 默认附带，`detail=false` 只回主译文；解析失败只是为空，不影响主流程）：
+
+| 字段 | 内容 | 出现的查询类型 |
+|---|---|---|
+| `dict` | 重点词汇 `[{word, defs}]`（句子里的关键词及释义） | 整句 |
+| `details_text` | 词典卡原文（best-effort，给想自己解析的人） | 整句 / 单词 |
+| `phonetic` | 英式 / 美式音标 `{uk, us}` | 单词 / 短语 |
+| `simple_def` | 简明释义（词性 + 中文释义，如 `n. 恢复力；弹力；适应力`） | 单词 / 短语 |
+| `examples` | 双语例句 `[{no, src, dst}]`，通常 5 条，源语句 + 译文成对 | 单词 / 短语 |
+| `explanation` | AI 译法解析长文（同一词多种译法的适用语境对比） | 单词 / 短语 |
+
+实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。单词查询（`machine learning` / `resilience` / `学习`）的音标、简明释义、5 条双语例句、译法解析均实测拿到。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版；词典卡以文本「简明释义」定位，完成标记有「以上为AI翻译结果 / 以上为机器翻译结果」两种文案（同一单词查询两种都出现过），都认。
+
+> 页面上「翻译详解 / 关键术语解释 / 专家审校」按钮点击后会弹**登录框**，未登录拿不到内容，API 不碰这三项（也不替用户登录）。
 
 **速度**（同一台机器、连续调用实测）：
 
