@@ -44128,6 +44128,16 @@ ${sanitizedStack}` : message2
           } catch (e) { /* ignore */ }
         });
       } catch (e) { /* ignore */ }
+      try {
+        chrome.storage.local.get("webtoopenapi_behavior", (cfg) => {
+          try {
+            const d = JSON.parse((cfg && cfg.webtoopenapi_behavior) || "{}");
+            if (d && typeof d === "object" && d.page_mode && nativePort) {
+              nativePort.postMessage({ type: "set_service_config", payload: d });
+            }
+          } catch (e) { /* ignore */ }
+        });
+      } catch (e) { /* ignore */ }
       return true;
     } catch (error) {
       console.warn(ERROR_MESSAGES.NATIVE_CONNECTION_FAILED, error);
@@ -44215,6 +44225,29 @@ ${sanitizedStack}` : message2
             defaults = JSON.parse((cfg && cfg.webtoopenapi_google_defaults) || "{}") || {};
           } catch (e) { defaults = {}; }
           sendResponse({ success: true, defaults });
+        }))();
+        return true;
+      }
+      // 浏览器行为(page_mode / keep_tab_ms): 与搜索默认参数同构, 但不需要重载扩展
+      if (msgType === "set_service_config") {
+        const config = typeof message2 === "object" && message2.config ? message2.config : {};
+        const pushed = nativePort !== null;
+        sendResponse({ success: true, pushed });
+        (() => __async(null, null, function* () {
+          try { yield chrome.storage.local.set({ webtoopenapi_behavior: JSON.stringify(config) }); } catch (e) { /* ignore */ }
+          if (nativePort) {
+            try { nativePort.postMessage({ type: "set_service_config", payload: config }); } catch (e) { /* ignore */ }
+          }
+        }))();
+        return true;
+      }
+      if (msgType === "reset_service_config") {
+        sendResponse({ success: true, pushed: nativePort !== null });
+        (() => __async(null, null, function* () {
+          try { yield chrome.storage.local.remove("webtoopenapi_behavior"); } catch (e) { /* ignore */ }
+          if (nativePort) {
+            try { nativePort.postMessage({ type: "reset_service_config" }); } catch (e) { /* ignore */ }
+          }
         }))();
         return true;
       }

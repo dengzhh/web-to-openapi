@@ -41,8 +41,8 @@
     <div class="wrap">
       <h1>Web To OpenAPI 设置</h1>
       <p class="sub">
-        配置本地 OpenAPI 服务的<b>监听地址</b>与<b>端口</b>。配置保存在扩展存储中;
-        保存后扩展会自动重新加载, 使新地址立即生效, 无需手动重启。
+        配置本地 OpenAPI 服务的<b>监听地址</b>、<b>端口</b>与<b>浏览器行为</b>。配置保存在扩展存储中;
+        地址/端口保存后扩展会自动重新加载, 浏览器行为保存后立即下发给本地服务生效。
       </p>
 
       <div class="card">
@@ -62,6 +62,42 @@
         <button id="save">保存并应用</button>
         <button id="reset" class="ghost">恢复默认</button>
         <span id="status"></span>
+      </div>
+
+      <div class="card">
+        <b>浏览器行为</b>
+        <div class="hint" style="margin-top:4px">
+          控制本地服务驱动浏览器(Edge / Chrome)时<b>怎么开页面</b>、以及<b>页面留多久</b>。
+          保存在扩展存储中并下发给本地服务, 立即生效, 无需重启浏览器。
+        </div>
+
+        <label for="page_mode">页面打开策略 (page_mode)</label>
+        <select id="page_mode">
+          <option value="auto">auto —— 按站点自选(默认)</option>
+          <option value="tab">tab —— 后台标签, 不新建窗口、不抢焦点</option>
+          <option value="window">window —— 独立窗口但不激活</option>
+          <option value="window-front">window-front —— 独立窗口并激活(每次弹窗)</option>
+        </select>
+        <div class="hint">
+          浏览器没有"完全隐藏窗口"的能力, <code>tab</code> 是"看起来什么都没发生"的最优解;
+          代价是后台标签会被调度节流(渲染重的页面如谷歌会变慢)。
+          需要登录/验证时页面会自动切到前台。
+        </div>
+
+        <label for="keep_tab_sec">标签页保留时长 (keep_tab_ms, 秒)</label>
+        <input id="keep_tab_sec" type="number" min="0" step="1" placeholder="180" spellcheck="false" />
+        <div class="hint">
+          任务完成后页面留多久再关。<code>180</code>(默认) = 3 分钟内再次调用<b>复用同一页面、不重新加载</b>
+          (翻译接口约 4s → 2s); <code>0</code> = 每次调用结束就关(旧行为, 每次都重新加载)。
+          只影响服务自己开的那个后台标签。
+        </div>
+
+        <div class="actions">
+          <button id="save-behavior">保存并应用</button>
+          <button id="reset-behavior" class="ghost">恢复默认</button>
+          <span id="behavior-status"></span>
+        </div>
+        <div class="hint">当前本地服务生效值: <b id="current-behavior">检测中...</b></div>
       </div>
 
       <div class="card">

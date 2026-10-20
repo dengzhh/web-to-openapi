@@ -7,7 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const { callTool } = require("./nm");
 const { log } = require("./log");
-const { CONFIG, STATE_DIR } = require("./config");
+const { getCfg, STATE_DIR } = require("./config");
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -55,7 +55,7 @@ const PAGE_MODES = ["auto", "tab", "window", "window-front"];
 
 async function openPage(url, opts) {
   const o = opts || {};
-  const global = PAGE_MODES.includes(CONFIG.page_mode) ? CONFIG.page_mode : "auto";
+  const global = PAGE_MODES.includes(getCfg().page_mode) ? getCfg().page_mode : "auto";
   const site = PAGE_MODES.includes(o.siteMode) && o.siteMode !== "auto" ? o.siteMode : (PAGE_MODES.includes(o.mode) ? o.mode : null);
   const mode = global === "auto" ? (site || "tab") : global;
   const args = { url };
@@ -147,7 +147,7 @@ async function closePage(page) {
  *   2) 之后同一 key 的调用先试 swapUrlInTab(): replaceState + 派发 popstate —— 页内换参, 0 重载;
  *   3) 页内换参不可用(标签被关/被用户改作别用/页面不监听 popstate) → 退化为在原标签页重载;
  *      再不行才新开一个。三级降级, 任何一级失败都不影响正确性。
- *   4) 空闲超过 CONFIG.keep_tab_ms 毫秒后自动关闭标签页(默认 3 分钟, 0 表示不复用直接关)。
+ *   4) 空闲超过 keep_tab_ms 毫秒后自动关闭标签页(默认 3 分钟, 0 表示不复用直接关)。
  *
  * 注意: replaceState 不产生历史记录(用 pushState 会让后退键变成翻历史译文)。
  * 换参前校验 location.host —— 防止用户把这个标签页导航到别处后我们改错页面。
@@ -209,7 +209,7 @@ function armPoolTimer(key) {
   const e = PAGE_POOL.get(k);
   if (!e) return;
   clearPoolTimer(e);
-  const ms = CONFIG.keep_tab_ms;
+  const ms = getCfg().keep_tab_ms;
   if (!(ms > 0)) return; // 不复用: 由调用方在本次调用结束后关闭
   e.timer = setTimeout(() => { dropPooled(k, true).catch(() => {}); }, ms);
   if (e.timer.unref) e.timer.unref(); // 不因为"等关闭"而拖住进程退出
@@ -221,7 +221,7 @@ function touchPooled(key, keepMs) {
   const e = PAGE_POOL.get(k);
   if (!e) return;
   clearPoolTimer(e);
-  const ms = keepMs == null ? CONFIG.keep_tab_ms : keepMs;
+  const ms = keepMs == null ? getCfg().keep_tab_ms : keepMs;
   if (!ms || ms <= 0) {
     // 不复用: 立刻关掉(不要留下"池里还有条目但不关"的状态, 否则下次会误复用旧页面)
     return dropPooled(k, true).catch(() => {});

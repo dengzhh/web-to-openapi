@@ -1,9 +1,15 @@
 "use strict";
 /*
- * 配置: 同目录 config.json {host,port,tool_timeout_ms}
+ * 配置: 同目录 config.json {host,port,tool_timeout_ms,page_mode,keep_tab_ms}
  * 覆盖优先级(低 -> 高): 内置默认 < config.json < CLI --host/--port < 环境变量
  *   WEBTOOPENAPI_HOST / WEBTOOPENAPI_PORT / WEBTOOPENAPI_TOOL_TIMEOUT_MS
+ *   WEBTOOPENAPI_PAGE_MODE / WEBTOOPENAPI_KEEP_TAB_MS
  * 读取失败不抛异常, 只把原因放进 CONFIG.warnings(由启动方打印), 保证 host 一定能起来。
+ *
+ * page_mode / keep_tab_ms 额外支持"运行时覆盖": 扩展设置页(Edge / Chrome 选项页)下发,
+ * 落盘到 %LOCALAPPDATA%\webtoopenapi\service-config.json, host 重启后仍生效。
+ * 覆盖层优先级最高(高于 config.json 与环境变量), 因为它是用户最近一次显式操作。
+ * 用 getCfg() 读"当前生效值" —— 不要在模块加载期把 CONFIG 解构成常量, 否则拿不到覆盖。
  */
 const fs = require("fs");
 const path = require("path");
@@ -70,4 +76,78 @@ const VERSION = "1.0.0";
 // 本地状态目录(默认参数持久化也放这里)
 const STATE_DIR = process.env.LOCALAPPDATA || HOST_DIR;
 
-module.exports = { HOST_DIR, STATE_DIR, CONFIG, SERVICE, VERSION, PAGE_MODES };
+/* ---------------------------------------------------------------- 运行时覆盖 */
+
+const OVERRIDE_FILE = path.join(STATE_DIR, "webtoopenapi", "service-config.json");
+// 只允许覆盖这两个"行为开关"; host/port/tool_timeout_ms 改了要重启才完整生效, 不开放
+const OVERRIDABLE = ["page_mode", "keep_tab_ms"];
+let overrides = {};
+
+function loadOverrides() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(OVERRIDE_FILE, "utf8"));
+    if (saved && typeof saved === "object") overrides = saved;
+  } catch (e) { /* 无文件或损坏: 无覆盖 */ }
+  return overrides;
+}
+
+function saveOverrides() {
+  try {
+    fs.mkdirSync(path.dirname(OVERRIDE_FILE), { recursive: true });
+    fs.writeFileSync(OVERRIDE_FILE, JSON.stringify(overrides, null, 2), "utf8");
+  } catch (e) { /* 只影响持久化, 不影响本次生效 */ }
+}
+
+function sanitizeOverride(patch) {
+  const out = {};
+  if (!patch || typeof patch !== "object") return out;
+  if (patch.page_mode != null && patch.page_mode !== "") {
+    const m = String(patch.page_mode).trim().toLowerCase();
+    if (PAGE_MODES.includes(m)) out.page_mode = m;
+  }
+  if (patch.keep_tab_ms != null && patch.keep_tab_ms !== "") {
+    const ms = parseInt(patch.keep_tab_ms, 10);
+    if (ms >= 0) out.keep_tab_ms = ms;
+  }
+  return out;
+}
+
+/*
+ * 当前生效配置(合并启动配置与运行时覆盖)。
+ * 注意: 返回新对象, 调用方不要缓存它 —— 覆盖可能在两次调用之间发生变化。
+ */
+function getCfg() {
+  return { ...CONFIG, ...overrides };
+}
+
+/*
+ * 由扩展设置页下发。传 null / 空串表示"恢复默认"(删掉那一项的覆盖)。
+ * 返回生效值, 调用方直接回给设置页显示。
+ */
+function setServiceOverride(patch) {
+  const clean = sanitizeOverride(patch);
+  for (const k of OVERRIDABLE) {
+    if (clean[k] !== undefined) overrides[k] = clean[k];
+    else if (patch && (patch[k] === null || patch[k] === "")) delete overrides[k];
+  }
+  saveOverrides();
+  return getCfg();
+}
+
+function resetServiceOverride() {
+  overrides = {};
+  try { fs.unlinkSync(OVERRIDE_FILE); } catch (e) { /* 本来就没有 */ }
+  return getCfg();
+}
+
+// 当前有哪些项被覆盖了(设置页下发), 空对象 = 完全按 config.json / 环境变量走
+function getOverrides() {
+  return { ...overrides };
+}
+
+loadOverrides();
+
+module.exports = {
+  HOST_DIR, STATE_DIR, CONFIG, SERVICE, VERSION, PAGE_MODES,
+  getCfg, setServiceOverride, resetServiceOverride, getOverrides, OVERRIDE_FILE,
+};

@@ -3,7 +3,7 @@
  * 站点: 服务自身能力(不属于任何具体网页)
  * 与站点模块同构, 因此 health / browser_tool 也自动出现在 MCP 工具列表与文档里。
  */
-const { CONFIG, SERVICE, VERSION, PAGE_MODES } = require("../lib/config");
+const { getCfg, getOverrides, SERVICE, VERSION, PAGE_MODES } = require("../lib/config");
 const state = require("../lib/state");
 const nm = require("../lib/nm");
 const { callTool, withBrowserLock } = require("../lib/util");
@@ -13,14 +13,17 @@ function health() {
     status: "ok",
     service: SERVICE,
     version: VERSION,
-    listen: `http://${CONFIG.host}:${state.httpPort || CONFIG.port}`,
+    listen: `http://${getCfg().host}:${state.httpPort || getCfg().port}`,
     extension_connected: nm.isConnected(),
     uptime_s: state.startedAt ? Math.floor((Date.now() - state.startedAt.getTime()) / 1000) : null,
     // 页面打开策略: tab(后台标签, 默认, 不弹窗) / window(不激活的独立窗口) / window-front(弹窗)
-    page_mode: CONFIG.page_mode,
+    // page_mode / keep_tab_ms 是"当前生效值"(可能被扩展设置页覆盖), 覆盖项见 config_override
+    page_mode: getCfg().page_mode,
     page_modes: PAGE_MODES,
     // 标签页复用窗口(毫秒): 这段时间内重复调用不重载网页; 0 = 不复用
-    keep_tab_ms: CONFIG.keep_tab_ms,
+    keep_tab_ms: getCfg().keep_tab_ms,
+    // 被扩展设置页覆盖的项(空对象 = 按 host/config.json 与环境变量走)
+    config_override: getOverrides(),
   };
 }
 

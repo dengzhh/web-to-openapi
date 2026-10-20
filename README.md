@@ -39,7 +39,7 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 | `host/lib/` | 基础设施：`config` 配置 / `log` 日志 / `nm` native messaging 命令通道 / `util` 浏览器操作（开页·执行 JS·重试提取·链接还原）/ `defaults` 默认参数三层合并 / `registry` 站点注册表 / `mcp` MCP 协议 / `spec` `/openapi.json` / `docs` `/docs` 文档页 / `tools` 浏览器工具目录 / `http` 路由分发 |
 | `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js` / `translate.js`（在线翻译，内部用引擎表聚合多站点）+ 服务自身的 `_service.js`。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
-| `host/config.json` | **默认**监听地址/端口（`host` / `port` / `tool_timeout_ms`）、页面打开策略（`page_mode`）、标签页复用窗口（`keep_tab_ms`）——仅当「插件设置」未配置时生效 |
+| `host/config.json` | 监听地址/端口（`host` / `port` / `tool_timeout_ms`）、页面打开策略（`page_mode`）、标签页复用窗口（`keep_tab_ms`）。后两者可被「扩展设置页 → 浏览器行为」覆盖（优先级：设置页 > 本文件 > 环境变量 > 内置默认） |
 | `host/run_host.bat` | 浏览器拉起 host 的启动器（自动找 node.exe；Edge / Chrome 走同一个） |
 | `host/com.webtoopenapi.host.json` | native messaging manifest（`allowed_origins` = 扩展 ID，安装时自动推导，无需手改） |
 | `host/install-host.ps1` | 注册/注销 native host（写 HKCU 注册表，无需管理员，Edge + Chrome 双键） |
@@ -102,7 +102,7 @@ Chrome 用户请注意三点：
 
 接口需要真实浏览器渲染，但**默认不会在你面前弹窗，也不会抢焦点**：它在当前窗口开一个后台标签，提取完立刻关掉，标签栏几乎看不到变化。
 
-`host/config.json` 的 `page_mode` 控制这一行为（改完杀掉 host，扩展会自动重拉）：
+`host/config.json` 的 `page_mode` 控制这一行为（改完杀掉 host，扩展会自动重拉；也可以直接在**扩展设置页**的「浏览器行为」卡片里选，保存后立即生效、不用杀进程）：
 
 | `page_mode` | 行为 | 适用 |
 |---|---|---|
@@ -111,7 +111,7 @@ Chrome 用户请注意三点：
 | `window` | 独立窗口但**不激活**（`focused:false`），完成后关标签、窗口随之消失 | 想在视觉上隔开 |
 | `window-front` | 独立窗口并**激活**（旧行为：每次调用都弹窗抢焦点） | 需要最快速度、可被打断时 |
 
-也可以只临时改一次：`WEBTOOPENAPI_PAGE_MODE=tab|window|window-front|auto` 环境变量（优先级最高）。
+也可以只临时改一次：`WEBTOOPENAPI_PAGE_MODE=tab|window|window-front|auto` 环境变量。三种方式的优先级：**扩展设置页 > `config.json` > 环境变量**。
 
 **一个必须知道的物理限制**：Chromium 会冻结"不可见"标签的渲染与网络。所以当**浏览器窗口被最小化或被完全遮挡**时，后台标签的页面会拖到 20~30 秒才开始加载，甚至超时。实测同一台机器、同一个谷歌查询：
 
@@ -144,6 +144,10 @@ Chrome 用户请注意三点：
 | `0` | 关闭复用：每次调用结束就关标签页（旧行为，每次都重新加载） |
 
 也可以临时改一次：`WEBTOOPENAPI_KEEP_TAB_MS=0` 环境变量。`/health` 会回显当前值。
+
+**改这两个值最方便的地方是扩展设置页**：Edge / Chrome 工具栏 → 扩展图标 → 「扩展选项」（或 `edge://extensions` → 详细信息 → 扩展选项），里面的「浏览器行为」卡片可以直接选 `page_mode`、填 `keep_tab_ms`（单位秒），保存后立即下发到本地服务生效，不用重启浏览器、也不用改文件。设置页还会显示本地服务**当前实际生效的值**以及它是来自设置页覆盖还是 `config.json`，改完能当场确认。
+
+覆盖优先级：**扩展设置页 > `host/config.json` > 环境变量 > 内置默认**。设置页里「恢复默认」会删掉覆盖、回到 `config.json` 的行为。覆盖值落盘在 `%LOCALAPPDATA%\webtoopenapi\service-config.json`，host 重启后仍生效。
 
 实现上是三级降级，任何一级失败都只影响速度、不影响正确性：
 

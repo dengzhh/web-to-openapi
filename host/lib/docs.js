@@ -3,7 +3,7 @@
  * /docs 文档页。内容由站点注册表派生: 新增端点后文档页自动出现对应卡片(含 curl 示例)。
  * 卡片文案取自端点的 doc 字段(note / postNote / tryQuery / curlGet / curlPost / slow)。
  */
-const { CONFIG } = require("./config");
+const { getCfg } = require("./config");
 const state = require("./state");
 const registry = require("./registry");
 
@@ -26,7 +26,7 @@ const NOTICE_CARD = `  <div class="card" style="border-color:#f59e0b; background
 
 // 页面打开策略(来自 config.page_mode): 读者最关心"会不会弹窗", 放在最前面
 function pageCard() {
-  const mode = CONFIG.page_mode;
+  const mode = getCfg().page_mode;
   const desc = {
     auto: "按站点自选(当前各站点均为后台标签)",
     tab: "在后台标签打开: 不新建窗口、不抢焦点, 提取完自动关闭",

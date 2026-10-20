@@ -22,7 +22,7 @@
  */
 
 const { acquirePooled, touchPooled, dropPooled, swapUrlInTab, reloadInTab, setPooledTab, focusTab, jsEval, sleep } = require("../lib/util");
-const { CONFIG } = require("../lib/config");
+const { getCfg } = require("../lib/config");
 const { log } = require("../lib/log");
 
 const MAX_TEXT = 5000;
@@ -35,12 +35,12 @@ const CACHE_MAX = 20;
 function cacheGet(sig) {
   const it = CACHE.get(sig);
   if (!it) return null;
-  if (Date.now() - it.at > Math.max(CONFIG.keep_tab_ms, 0)) { CACHE.delete(sig); return null; }
+  if (Date.now() - it.at > Math.max(getCfg().keep_tab_ms, 0)) { CACHE.delete(sig); return null; }
   return it.out;
 }
 
 function cacheSet(sig, out) {
-  if (!(CONFIG.keep_tab_ms > 0)) return; // 不复用标签页时不做缓存(保持"每次都是新结果")
+  if (!(getCfg().keep_tab_ms > 0)) return; // 不复用标签页时不做缓存(保持"每次都是新结果")
   CACHE.set(sig, { out, at: Date.now() });
   while (CACHE.size > CACHE_MAX) CACHE.delete(CACHE.keys().next().value);
 }
@@ -485,9 +485,9 @@ const ENGINES_INFO = () => ({
   default_from: "auto",
   default_to: "zh",
   max_text_chars: MAX_TEXT,
-  keep_tab_ms: CONFIG.keep_tab_ms,
-  reuse: CONFIG.keep_tab_ms > 0
-    ? `首次调用加载网页(约 3-4s), 之后 ${Math.round(CONFIG.keep_tab_ms / 1000)} 秒内复用同一标签页不再加载(约 2s); 完全相同的请求毫秒级返回`
+  keep_tab_ms: getCfg().keep_tab_ms,
+  reuse: getCfg().keep_tab_ms > 0
+    ? `首次调用加载网页(约 3-4s), 之后 ${Math.round(getCfg().keep_tab_ms / 1000)} 秒内复用同一标签页不再加载(约 2s); 完全相同的请求毫秒级返回`
     : "本次配置不复用标签页(keep_tab_ms=0), 每次调用都重新加载网页(约 3-4s)",
   note: "from / to 只接受下表 languages 里的 code 或其 aliases。未收录代码直接 400 —— 百度对不认识的目标语言会静默回退成中文, 所以不做透传。",
 });

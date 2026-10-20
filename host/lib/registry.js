@@ -12,6 +12,8 @@
  *   3. /openapi.json(lib/spec.js) 4. /docs 文档页(lib/docs.js) + 扩展默认参数消息
  */
 const sites = [];
+const cfg = require("./config");
+const { log } = require("./log");
 
 function register(site) {
   sites.push(site);
@@ -37,6 +39,7 @@ function initAll() {
 /*
  * 处理扩展下发的站点消息: set/get_<nmType>_defaults。
  * 消息类型由站点 id 派生, 扩展侧(extension/background.js)无需为每个站点手写分派。
+ * 另外处理全局"服务配置"消息: set/get/reset_service_config(page_mode / keep_tab_ms)。
  * 返回 true 表示消息已被消费(调用方不再走内置 switch)。
  */
 function handleNm(message, nmSend) {
@@ -53,7 +56,33 @@ function handleNm(message, nmSend) {
       return true;
     }
   }
+  // 全局服务配置(不属于任何站点): 扩展设置页 -> 运行时生效 + 持久化
+  if (message.type === "set_service_config") {
+    cfg.setServiceOverride(message.payload || {});
+    log("info", `service config overridden: ${JSON.stringify(cfg.getOverrides())}`);
+    nmSend({ type: "service_config", payload: publicServiceConfig() });
+    return true;
+  }
+  if (message.type === "get_service_config") {
+    nmSend({ type: "service_config", payload: publicServiceConfig() });
+    return true;
+  }
+  if (message.type === "reset_service_config") {
+    cfg.resetServiceOverride();
+    nmSend({ type: "service_config", payload: publicServiceConfig() });
+    return true;
+  }
   return false;
+}
+
+// 只回给设置页需要的字段, 不把 warnings / configPath 这类内部细节泄漏出去
+function publicServiceConfig() {
+  return {
+    page_mode: cfg.getCfg().page_mode,
+    page_modes: cfg.PAGE_MODES,
+    keep_tab_ms: cfg.getCfg().keep_tab_ms,
+    config_override: cfg.getOverrides(),
+  };
 }
 
 module.exports = { register, all, allEndpoints, allTools, findTool, initAll, handleNm };
