@@ -109,15 +109,25 @@ Chrome 用户请注意三点：
 | `auto`（默认） | 按站点自选，目前等同于 `tab` | 大多数场景 |
 | `tab` | **后台标签**：复用当前窗口，不新建窗口、不抢焦点，完成后自动关闭 | 平时使用 |
 | `window` | 独立窗口但**不激活**（`focused:false`），完成后关标签、窗口随之消失 | 想在视觉上隔开 |
-| `window-corner` | **右下角小窗口**（约 360×280 的 popup，不激活）：有正常渲染优先级，又只占角落 | 要速度又想少挡屏幕 |
+| `window-corner` | **右下角小窗口**（约 360×280 的 popup，不激活），只占角落 | 嫌 `window` 大窗挡屏幕时 |
 | `window-front` | 独立窗口并**激活**（旧行为：每次调用都弹窗抢焦点） | 需要最快速度、可被打断时 |
 
 也可以只临时改一次：`WEBTOOPENAPI_PAGE_MODE=auto|tab|window|window-corner|window-front` 环境变量。三种方式的优先级：**扩展设置页 > `config.json` > 环境变量**。
 
-**`window-corner` 的实测结论（2026-10-20，本机 Edge）**：小窗落在右下角任务栏上方、`focused:false`、`state:normal`。屏幕大小由扩展用「最大化窗口尺寸 + 14px」推断（MV3 service worker 里没有 `window.screen`，Edge 也没有 `chrome.system.display`），推断值按 session 缓存。两种桌面下的表现：
+**`window-corner` 的实测结论（2026-10-20/21，本机 Edge）**：小窗落在右下角任务栏上方、`focused:false`、`state:normal`。屏幕大小由扩展用「最大化窗口尺寸 + 14px」推断（MV3 service worker 里没有 `window.screen`，Edge 也没有 `chrome.system.display`），推断值按 session 缓存。两种桌面下的表现：
 
 - **浏览器窗口铺满屏幕**（最常见）：小窗被完全遮挡，页面 `visibilityState` 掉 `hidden`，但百度翻译端到端仍 3~5 秒（与未遮挡持平），定时器未观测到实质节流；用户视觉上完全无感。
 - **浏览器窗口较小**：小窗在右下角可见约 `keep_tab_ms`（默认 3 分钟，供复用提速），不抢焦点，到期自动消失。
+
+⚠️ **它不能提速**。分层实测（fresh = 不复用、每次全新开页面；稳态 = 标签复用中）：
+
+| 场景 | fresh | 复用稳态 |
+|---|---|---|
+| 浏览器可见 | 3.1 / 3.5 / 3.6s | 2.7~3.6s |
+| 浏览器最小化（hidden） | 3.3 / 4.4 / 4.5 / 6.9s | 2.8~3.2s |
+| 最小化 + corner 独立窗 | 4.3 / 4.7s | — |
+
+结论：`hidden` 只拖慢冷启动约 1.4s（百度 AI 生成 + 页面加载才是耗时大头，与可见性无关），标签一旦复用差异完全消失；corner 的独立窗不随主窗口最小化，但实测 fresh 4.3~4.7s 与 tab 的 hidden 4.8s 仍在噪声内，**没有可归因的速度收益**。选 `window-corner` 的唯一理由是"不想被 1280×900 大窗挡屏幕"。
 
 > **屏幕外窗口不可行**（已移除该模式）：`chrome.windows.create` 有「Bounds must be at least 50% within visible screen space」校验，直接拒绝 (20000,20000) 这类坐标；扩展用 `chrome.debugger` 附加的 tab 会话上没有 Browser 域，CDP `Browser.setWindowBounds` 也用不了（`-32601 wasn't found`）；把窗改 `minimized` 同样掉 `hidden`。早前「屏幕外窗口仍是 visible」的实测来自 playwright 的浏览器级 CDP 会话，扩展 API 够不到那个会话。
 
