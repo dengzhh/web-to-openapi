@@ -40,18 +40,39 @@ function strList(v) {
  *   传 newWindow/width/height -> chrome.windows.create({focused: background ? false : true})
  *   否则                       -> chrome.tabs.create({windowId: 最近聚焦窗口, active: !background})
  *
- * 四种模式(opts.siteMode 为站点声明, config.page_mode 为全局强制):
- *   "tab"          在最近窗口开**后台标签**: 不新建窗口、不抢焦点, 用户基本无感。
- *                  ⚠ 后台标签会被 Chromium 调度节流: 实测谷歌 SERP 要 20s 才渲染出结果,
- *                  而可见(哪怕未激活)的窗口 5s 就完整。轻量页面(百度/翻译/scnet)几乎无损。
- *   "window"       独立窗口但不激活(focused:false): 渲染优先级正常, 任务完成关标签窗口自动消失。
- *   "window-front" 独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点, 只在调试时用。
- *   "auto"         按站点自选: 站点声明了 siteMode 就用它, 没声明就用 tab。
+ * 五种模式(opts.siteMode 为站点声明, config.page_mode 为全局强制):
+ *   "tab"            在最近窗口开**后台标签**: 不新建窗口、不抢焦点, 用户基本无感。
+ *                    ⚠ 后台标签会被 Chromium 调度节流: 实测谷歌 SERP 要 20s 才渲染出结果,
+ *                    而可见(哪怕未激活)的窗口 5s 就完整。轻量页面(百度/翻译/scnet)几乎无损。
+ *   "window"         独立窗口但不激活(focused:false): 渲染优先级正常, 任务完成关标签窗口自动消失。
+ *                    默认 1280x900, 位置由 Edge 自选(屏幕中部) —— 不抢焦点但占地方。
+ *   "window-corner"  独立**小窗口**落右下角(避开任务栏), 不激活。渲染优先级正常,
+ *                    视觉存在感约等于一个通知弹窗; 适合"要速度又想尽量不挡屏幕"。
+ *   "window-front"   独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点, 只在调试时用。
+ *   "auto"           按站点自选: 站点声明了 siteMode 就用它, 没声明就用 tab。
  *
- * 浏览器 API 没有"完全隐藏窗口"的能力(offscreen 文档不能导航任意站点), 所以
- * tab 是"看起来什么都没发生"的最优解; 需要人介入时用 needsHuman() 显式切到前台。
+ * 为什么需要 corner: tab 模式下浏览器窗口一旦被最小化/完全遮挡, 标签页可能掉 hidden
+ * 而被节流(渲染重的页面可慢 4 倍); window 模式能保 visible, 但默认窗口太大太挡。
+ * 角落小窗是两者的折中。
+ * 实测(2026-10-20, 本机 Edge 155):
+ *   - corner 小窗落右下角后若被最大化浏览器窗口完全遮挡, 页面 visibilityState 会掉 hidden,
+ *     但端到端翻译仍 3-5s(与未遮挡持平), 定时器未观测到实质节流;
+ *   - 浏览器窗口未铺满屏幕时, 小窗可见但不抢焦点, 任务完成(keep_tab_ms 到期)自动消失。
+ *
+ * 已废弃的 "window-offscreen"(屏幕外 20000,20000)方案: chrome.windows.create 有
+ * "Bounds must be at least 50% within visible screen space" 校验直接拒掉屏幕外坐标;
+ * chrome.debugger 附加的 tab 会话上没有 Browser 域, CDP Browser.setWindowBounds 也用不了
+ * (实测 -32601 wasn't found); 改 minimized 状态同样掉 hidden。此路不通, 故移除该模式。
+ * 注: 早期用 playwright 在浏览器级 CDP 会话能把窗移出屏幕且页面仍 visible, 但扩展
+ * (MV3 + chrome.* API)够不到那个会话, 那条实测结论对本项目不适用。
+ *
+ * 浏览器 API 没有"完全隐藏窗口"的能力(offscreen 文档不能导航任意站点), tab 之外的
+ * 选择都在这里; 需要人介入时用 needsHuman() 显式切到前台。
  */
-const PAGE_MODES = ["auto", "tab", "window", "window-front"];
+const PAGE_MODES = ["auto", "tab", "window", "window-front", "window-corner"];
+
+// 角落小窗的默认尺寸(调用方可用 opts.width/height 覆盖)
+const CORNER_WIN = { w: 360, h: 280 };
 
 async function openPage(url, opts) {
   const o = opts || {};
@@ -64,6 +85,16 @@ async function openPage(url, opts) {
     args.width = o.width || 1280;
     args.height = o.height || 900;
     args.background = mode === "window"; // window: 不激活; window-front: 抢焦点
+  } else if (mode === "window-corner") {
+    // 位置由扩展算(右下角, 避开任务栏): 扩展用"最大化窗口尺寸+14px"推断屏幕大小,
+    // MV3 service worker 里没有 window.screen, Edge 也没有 chrome.system.display;
+    // 这里只定尺寸和意图
+    args.newWindow = true;
+    args.width = o.width || CORNER_WIN.w;
+    args.height = o.height || CORNER_WIN.h;
+    args.background = true;
+    args.corner = true;
+    args.type = "popup"; // 无地址栏/标签栏的小面板窗, 存在感最小
   } else {
     args.background = true; // 复用最近窗口, 后台标签, 不激活
     if (o.windowId) args.windowId = o.windowId;

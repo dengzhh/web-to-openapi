@@ -75,13 +75,17 @@
         <select id="page_mode">
           <option value="auto">auto —— 按站点自选(默认)</option>
           <option value="tab">tab —— 后台标签, 不新建窗口、不抢焦点</option>
-          <option value="window">window —— 独立窗口但不激活</option>
+          <option value="window">window —— 独立窗口(1280×900)但不激活</option>
+          <option value="window-corner">window-corner —— 右下角小窗口(约 360×280), 不激活</option>
           <option value="window-front">window-front —— 独立窗口并激活(每次弹窗)</option>
         </select>
         <div class="hint">
           浏览器没有"完全隐藏窗口"的能力, <code>tab</code> 是"看起来什么都没发生"的最优解;
           代价是后台标签会被调度节流(渲染重的页面如谷歌会变慢)。
-          需要登录/验证时页面会自动切到前台。
+          <br><code>window-corner</code> 用右下角独立小窗口保证页面有正常渲染优先级, 同时不挡屏幕:
+          小窗不抢焦点, 任务完成自动消失; 浏览器窗口铺满屏幕时它被遮挡(页面可能掉
+          <code>hidden</code>, 但实测翻译端到端仍 3-5s, 无实质节流)。
+          <br>需要登录/验证时页面会自动切到前台。
         </div>
 
         <label for="keep_tab_sec">标签页保留时长 (keep_tab_ms, 秒)</label>

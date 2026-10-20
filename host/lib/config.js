@@ -15,16 +15,23 @@ const fs = require("fs");
 const path = require("path");
 
 const HOST_DIR = path.join(__dirname, "..");
-const PAGE_MODES = ["auto", "tab", "window", "window-front"];
+const PAGE_MODES = ["auto", "tab", "window", "window-front", "window-corner"];
 const DEFAULT_CONFIG = {
   host: "127.0.0.1",
   port: 8090,
   tool_timeout_ms: 120000,
   // 页面打开策略(见 util.openPage):
-  //   "auto"         按站点自选(默认): 轻量页面用后台标签, 渲染重的页面(如谷歌)用独立但不激活的窗口
-  //   "tab"          一律后台标签: 不新建窗口、不抢焦点; 代价是后台标签会被浏览器节流(谷歌实测慢 4 倍)
-  //   "window"       一律独立窗口但不激活(focused:false)
-  //   "window-front" 独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点
+  //   "auto"            按站点自选(默认): 轻量页面用后台标签, 渲染重的页面(如谷歌)用独立但不激活的窗口
+  //   "tab"             一律后台标签: 不新建窗口、不抢焦点; 代价是后台标签会被浏览器节流(谷歌实测慢 4 倍)
+  //   "window"          一律独立窗口但不激活(focused:false), 默认 1280x900
+  //   "window-corner"   独立小窗口落右下角(避开任务栏), 不激活: 要速度又要少挡屏幕时的折中。
+  //                      屏幕大小由扩展用"最大化窗口+14px"推断(MV3 SW 无 window.screen,
+  //                      Edge 无 chrome.system.display); 若小窗被最大化浏览器窗口完全遮挡,
+  //                      页面会掉 hidden, 但实测翻译端到端仍 3-5s, 无实质节流。
+  //                  （曾试验 "window-offscreen" 屏幕外方案: chrome.windows.create 有
+  //                      "至少 50% 在可见屏幕内"的 bounds 校验直接拒绝, tab 附加的 CDP
+  //                      会话也没有 Browser 域, 此路不通已移除）
+  //   "window-front"    独立窗口并激活: 旧行为, 每次调用都弹窗抢焦点
   page_mode: "auto",
   // 页面复用: 同一站点连续调用时, 标签页保留多久(毫秒)后自动关闭。
   //   0      = 不复用, 每次调用结束就关(旧行为, 每次都重新加载网页)

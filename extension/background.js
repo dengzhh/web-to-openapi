@@ -2870,7 +2870,10 @@ var __yieldStar = (value) => {
           refresh = false,
           tabId,
           background: background2,
-          windowId
+          windowId,
+          left,
+          top,
+          type: winType
         } = args;
         console.log(
           `Attempting to ${refresh ? "refresh current tab" : `open URL: ${url}`} with options:`,
@@ -3047,12 +3050,27 @@ var __yieldStar = (value) => {
           const openInNewWindow = newWindow || typeof width === "number" || typeof height === "number";
           if (openInNewWindow) {
             console.log("Opening URL in a new window.");
-            const newWindow2 = yield chrome.windows.create({
+            // left/top/type 由调用方(host openPage)按 page_mode 计算: 角落小窗需要精确位置
+            const winCreate = {
               url,
               width: typeof width === "number" ? width : DEFAULT_WINDOW_WIDTH,
               height: typeof height === "number" ? height : DEFAULT_WINDOW_HEIGHT,
               focused: background2 === true ? false : true
-            });
+            };
+            if (typeof left === "number") winCreate.left = left;
+            if (typeof top === "number") winCreate.top = top;
+            if (winType === "popup" || winType === "panel" || winType === "detached_panel") winCreate.type = winType;
+            // corner=true 且未显式给位置: 探测屏幕尺寸, 把窗口放右下角(底部多留 64px 避开任务栏)
+            if (args.corner === true && typeof winCreate.left !== "number") {
+              const scr = yield this.probeScreenSize();
+              if (scr && scr.aw) {
+                winCreate.left = Math.max(0, scr.aw - winCreate.width - 16);
+                winCreate.top = Math.max(0, scr.ah - winCreate.height - 64);
+              } else {
+                console.warn("[NavigateTool] screen probe failed, window will use default position");
+              }
+            }
+            const newWindow2 = yield chrome.windows.create(winCreate);
             if (newWindow2 && newWindow2.id !== void 0) {
               console.log(`URL opened in new Window ID: ${newWindow2.id}`);
               const firstTab = (_a2 = newWindow2.tabs) == null ? void 0 : _a2[0];
@@ -3163,6 +3181,38 @@ var __yieldStar = (value) => {
             );
           }
         }
+      });
+    }
+    /*
+     * 探测屏幕工作区尺寸(给 corner 模式的窗口定位用)。
+     * 为什么这么绕: MV3 service worker 里没有 window.screen; Edge 也没有
+     * chrome.system.display(实测 getDisplayInfo/getDisplayArea 均不存在);
+     * chrome.scripting.executeScript 注入后台标签页在本机实测会挂起(与扩展持有的
+     * CDP 会话冲突, 等到工具超时)。所以改用**最大化/全屏窗口反推**: 这类窗口几乎铺满
+     * 所在屏幕, 且左右各超出约 7px(隐藏边框), 屏幕尺寸 = 窗口尺寸 + 14。
+     * 结果按 session 缓存(浏览器重启前只探测一次); 当前没有最大化窗口时返回 null,
+     * 调用方兜底用 Edge 默认位置。
+     */
+    probeScreenSize() {
+      return __async(this, null, function* () {
+        try {
+          const cached = yield chrome.storage.session.get("wtoa_screen");
+          if (cached.wtoa_screen && cached.wtoa_screen.aw) return cached.wtoa_screen;
+        } catch (e) { /* session storage 不可用就每次现推 */ }
+        try {
+          const wins = yield chrome.windows.getAll();
+          const full = wins.find((w) => w.state === "maximized" || w.state === "fullscreen");
+          if (full && full.width && full.height) {
+            const v = { aw: full.width + 14, ah: full.height + 14, inferred: true };
+            try {
+              yield chrome.storage.session.set({ wtoa_screen: v });
+            } catch (e) { /* 缓存失败不致命 */ }
+            return v;
+          }
+        } catch (e) {
+          console.warn("[NavigateTool] screen probe failed:", e);
+        }
+        return null;
       });
     }
   }
