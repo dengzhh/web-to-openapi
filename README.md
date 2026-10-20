@@ -129,6 +129,10 @@ Chrome 用户请注意三点：
 
 结论：`hidden` 只拖慢冷启动约 1.4s（百度 AI 生成 + 页面加载才是耗时大头，与可见性无关），标签一旦复用差异完全消失；corner 的独立窗不随主窗口最小化，但实测 fresh 4.3~4.7s 与 tab 的 hidden 4.8s 仍在噪声内，**没有可归因的速度收益**。选 `window-corner` 的唯一理由是"不想被 1280×900 大窗挡屏幕"。
 
+⚠️ **关于"把浏览器放到 Hyper-V 虚机里保持始终可见"（更新于 2026-10-21）：技术上虚机内窗口状态完全独立于宿主机（VMConnect 最小化/宿主机锁屏都不影响），确实是唯一能在宿主机全后台时保位 `visible` 的方案。但**收益上限就是冷启动约 1s（hidden 4.8s → 可见 3.4s，方差很大），复用稳态零差异**；耄代是虚机常驻 2~4GB 内存 + 双份 host/扩展/网络链路，不值得。另注意：虚机内窗口被遮挡/最小化照样掉 `hidden`，虚机桌面最奿只开这一个窗口。
+
+另一个实测发现（"最小化传染"）：**宿主机所有浏览器窗口都最小化时，新建窗口会以 `minimized` 状态创建**（`window-front` 的 `focused:true` 也抢不过这个机制，实测新窗口 `state=minimized`、页面 `hidden`）。因此 `window-front` 在"浏览器全后台"场景下无法保 `visible`，宿主机上没有任何模式能在全最小化时做到。
+
 > **屏幕外窗口不可行**（已移除该模式）：`chrome.windows.create` 有「Bounds must be at least 50% within visible screen space」校验，直接拒绝 (20000,20000) 这类坐标；扩展用 `chrome.debugger` 附加的 tab 会话上没有 Browser 域，CDP `Browser.setWindowBounds` 也用不了（`-32601 wasn't found`）；把窗改 `minimized` 同样掉 `hidden`。早前「屏幕外窗口仍是 visible」的实测来自 playwright 的浏览器级 CDP 会话，扩展 API 够不到那个会话。
 
 **一个必须知道的物理限制**：Chromium 会冻结"不可见"标签的渲染与网络。所以当**浏览器窗口被最小化或被完全遮挡**时，后台标签的页面会拖到 20~30 秒才开始加载，甚至超时。实测同一台机器、同一个谷歌查询：
