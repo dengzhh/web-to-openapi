@@ -7,7 +7,7 @@
     <style>
       :root { --fg:#1e293b; --mut:#64748b; --bd:#e2e8f0; --acc:#0f766e; --bg:#fff; }
       * { box-sizing: border-box; }
-      body { margin:0; width:340px; background:var(--bg); color:var(--fg);
+      body { margin:0; width:480px; background:var(--bg); color:var(--fg);
         font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
       .wrap { padding:14px 16px 16px; }
       header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
@@ -16,7 +16,7 @@
       h1 { font-size:15px; margin:0; }
       .sub { font-size:11px; color:var(--mut); margin:-2px 0 0; }
       .status { font-size:12px; padding:8px 10px; border:1px solid var(--bd);
-        border-radius:8px; margin-bottom:10px; line-height:1.5; }
+        border-radius:8px; margin-bottom:10px; line-height:1.5; white-space:pre-line; }
       .status.ok { color:#0f766e; border-color:#cdeae5; background:#f3faf8; }
       .status.bad { color:#dc2626; border-color:#f3c6c6; background:#fdf3f3; }
       .row { display:flex; gap:8px; }
@@ -27,22 +27,51 @@
       .hint { font-size:11px; color:var(--mut); margin-top:10px; line-height:1.6; }
       code { background:#eef2f6; padding:1px 5px; border-radius:4px; font-size:11px; }
       a { color:var(--acc); }
+
+      /* 两个视图共用一套尺寸: 面板大小在打开那一刻就定死, 之后改 DOM 不会 resize。
+         所以状态视图要撑到与设置视图等高, 否则切过去时 iframe 会被裁掉。 */
+      #viewStatus { min-height:512px; display:flex; flex-direction:column; }
+      #viewStatus .hint { margin-top:auto; }
+      #viewSettings { display:none; }
+      .bar { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+      .bar button { flex:0 0 auto; padding:6px 12px; }
+      .bar .tip { font-size:11px; color:var(--mut); line-height:1.5; }
+      #optFrame { width:100%; height:470px; border:0; display:block; }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <header>
-        <div class="logo">W</div>
-        <div><h1>Web To OpenAPI</h1><div class="sub">本地网页 → OpenAPI 服务</div></div>
-      </header>
-      <div class="status" id="status">检测中...</div>
-      <div class="row">
-        <button id="openOptions">设置</button>
-        <button id="openDocs" class="ghost">文档</button>
+      <!-- 视图 1: 运行状态 -->
+      <div id="viewStatus">
+        <header>
+          <div class="logo">W</div>
+          <div><h1>Web To OpenAPI</h1><div class="sub">本地网页 → OpenAPI 服务</div></div>
+        </header>
+        <div class="status" id="status">检测中...</div>
+        <div class="row">
+          <button id="openOptions">设置</button>
+          <button id="openDocs" class="ghost">文档</button>
+        </div>
+        <div class="hint">
+          示例: <code>GET /api/v1/scnet/balance</code><br>
+          文档: <code>/docs</code> · 目录: <code>/api/v1/tools</code><br>
+          「设置」在面板内展开，不会跳到新网页；点「返回状态」回到这一页。
+        </div>
       </div>
-      <div class="hint">
-        示例: <code>GET /api/v1/scnet/balance</code><br>
-        文档: <code>/docs</code> · 目录: <code>/api/v1/tools</code>
+
+      <!-- 视图 2: 设置（iframe 复用 options.html，与整页设置同一套逻辑） -->
+      <div id="viewSettings">
+        <div class="bar">
+          <button id="backStatus" class="ghost">← 返回状态</button>
+          <button id="openOptionsTab" class="ghost">大屏打开</button>
+        </div>
+        <div class="bar">
+          <div class="tip">
+            改「监听地址 / 端口」保存后扩展会自动重载，本面板随之关闭（整页设置也一样）；
+            其余项（浏览器行为 / 搜索默认参数）保存后立即生效，不关面板。
+          </div>
+        </div>
+        <iframe id="optFrame" title="Web To OpenAPI 设置"></iframe>
       </div>
     </div>
     <script src="/chunks/popup-clean.js"></script>

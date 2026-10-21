@@ -123,6 +123,23 @@
     } catch (err) { /* ignore */ }
   }
 
+  // 两个视图在同一面板内切换: 设置走 iframe(复用 options.html), 不再
+  // chrome.runtime.openOptionsPage() 跳新标签页 —— 那样会抢焦点, 看完状态还得
+  // 回原页面重新找插件图标。iframe 只在首次切到设置时加载, 返回时不重载,
+  // 用户填了一半的内容不会丢。
+  function showView(name) {
+    var st = el("viewStatus");
+    var se = el("viewSettings");
+    if (!st || !se) return;
+    var toSettings = name === "settings";
+    st.style.display = toSettings ? "none" : "flex";
+    se.style.display = toSettings ? "block" : "none";
+    if (toSettings) {
+      var f = el("optFrame");
+      if (f && !f.getAttribute("src")) f.src = "options.html";
+    }
+  }
+
   function init() {
     if (chrome && chrome.storage && chrome.storage.local) {
       chrome.storage.local.get(["webtoopenapi_host", "webtoopenapi_port"], function (cfg) {
@@ -133,10 +150,18 @@
     } else { start(); }
 
     var opt = el("openOptions");
-    if (opt) opt.onclick = function () {
+    if (opt) opt.onclick = function () { showView("settings"); };
+
+    var back = el("backStatus");
+    if (back) back.onclick = function () { showView("status"); start(); };
+
+    // 逃生口: 面板里地方小, 需要细看/长表单时还是开整页
+    var tabBtn = el("openOptionsTab");
+    if (tabBtn) tabBtn.onclick = function () {
       if (chrome.runtime && chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
-      else window.open(chrome.runtime.getURL("options.html"));
+      else window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
     };
+    showView("status");
     bindDocs();
   }
 
