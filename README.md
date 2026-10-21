@@ -40,7 +40,7 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 | `host/sites/` | **一个网页一个文件**：`scnet.js` / `baidu.js` / `google.js` / `translate.js`（在线翻译，内部用引擎表聚合多站点）+ 服务自身的 `_service.js`。新增能力只在这里加文件，见「新增一个网页」 |
 | `host/mcp-stdio.js` | MCP stdio 桥接入口（独立进程，零依赖）：把 MCP 客户端的按行 JSON-RPC 转发到 `/mcp`，供 Claude Desktop 类客户端以 command 方式接入 |
 | `host/config.json` | 监听地址/端口（`host` / `port` / `tool_timeout_ms`）、页面打开策略（`page_mode`）、标签页复用窗口（`keep_tab_ms`）。后两者可被「扩展设置页 → 浏览器行为」覆盖（优先级：设置页 > 本文件 > 环境变量 > 内置默认） |
-| `host/run_host.bat` | 浏览器拉起 host 的启动器（自动找 node.exe；Edge / Chrome 走同一个） |
+| `host/run_host.bat` | 浏览器拉起 host 的启动器（按 `node-path.txt` → 环境变量 → PATH → 常见安装位 → 自带 node 的客户端依次找 node.exe；Edge / Chrome 走同一个） |
 | `host/com.webtoopenapi.host.json` | native messaging manifest（`allowed_origins` = 扩展 ID，安装时自动推导，无需手改） |
 | `host/install-host.ps1` | 注册/注销 native host（写 HKCU 注册表，无需管理员，Edge + Chrome 双键） |
 | `tools/gen-key.mjs` | （可选）生成自己的扩展密钥 + 计算扩展 ID，可一键写回两处配置 |
@@ -556,7 +556,7 @@ module.exports = {
 - **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
 - **日志**（都在 `%LOCALAPPDATA%\webtoopenapi\logs\`）：
   - `host-stderr.log` —— host 自身的运行日志（协议走 stdout，日志只走 stderr + 文件）；
-  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起的记录、node 发现结果、失败原因（node 找不到时会附上启动器当时看到的 PATH）。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起；有 `ERROR: node.exe not found` = 浏览器进程的环境里没有 node（装 Node.js 后**完全重启浏览器**；或设 `WEBTOOPENAPI_NODE` 指向 node.exe）。
+  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起、命中的 node 来源（`node source=`）、失败原因。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起；有 `ERROR: node.exe not found` = 浏览器进程的环境里找不到 node，紧随其后的 `searched:` 一行列出了尝试过的全部位置，`launcher PATH=` 是启动器当时看到的 PATH。
 - **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
 - **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
@@ -572,7 +572,12 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 **Q：popup 显示「本地服务未运行」，重开浏览器也没用？**
 按顺序查三层，每层都有明确判据：
 1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立（扩展没加载/被禁用，或注册表键缺失——重跑 `host/install-host.ps1`）。
-2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe not found` 和一条 PATH —— 说明浏览器进程的环境里找不到 node。本机 cmd 里 `where node` 能用不代表浏览器能用（浏览器的环境是它启动时快照的）。修复：安装 Node.js LTS（启动器有 `C:\Program Files\nodejs` 等固定回退位，不依赖 PATH），然后**完全退出浏览器再重开**（含任务管理器里的后台进程）；或设环境变量 `WEBTOOPENAPI_NODE` 为 node.exe 全路径后重启浏览器。
+2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe not found` 和一条 `launcher PATH=` —— 浏览器进程的环境里找不到 node。本机 cmd 里 `where node` 能用**不代表**浏览器能用：浏览器把**它自己启动那一刻**的环境传给启动器，之后装的 node、或者别的终端里配的 PATH，它都看不见。三条修法任选其一，做完必须**完全退出浏览器再重开**（含任务管理器里残留的后台进程，只关窗口没用）：
+   - **装 Node.js LTS**（最稳）：`winget install OpenJS.NodeJS.LTS`，或官网 msi，默认会落到 `C:\Program Files\nodejs`；
+   - **复用机器上已有的 node**（不想再装一遍时）：在 `host\` 目录下新建 `node-path.txt`，一行写 node.exe 全路径、不带引号，例如 `C:\Users\你\AppData\Local\Programs\某客户端\resources\runtime\cli\bin\node.exe`。写错路径时日志会打 `WARN: node-path.txt line does not exist: ...`；
+   - 设环境变量 `WEBTOOPENAPI_NODE` 指向同一个 node.exe（注意环境变量对**已启动**的浏览器不生效）。
+
+   启动器按顺序探测：`node-path.txt` → `WEBTOOPENAPI_NODE` → PATH → `where node.exe` → `C:\Program Files\nodejs` → `%ProgramFiles(x86)%\nodejs` → `%LOCALAPPDATA%\Programs\nodejs` → nvm（`NVM_SYMLINK` / `NVM_HOME` / `%APPDATA%\nvm\v*`）→ Volta → scoop → chocolatey → nvs → `~\.workbuddy\binaries\node\versions\*` → `%LOCALAPPDATA%\Programs\*\resources\runtime[\cli\bin]`（后者覆盖 WorkBuddy、DeepSeek Harness 这类自带 node 运行时的客户端）。命中的那条会以 `node source=<来源>` 写进日志。
 3. **popup 里的「启动失败原因」**：探测彻底失败时，popup 会把扩展记录的上一次 native 断开原因直接显示出来（如 `Access to the specified native messaging host is forbidden` = 扩展 ID 与 manifest 的 `allowed_origins` 不匹配——确认加载的是发布包里的 `extension/` 目录，manifest 自带公钥会锁定 ID；`Native host has exited` = 启动器起来了又退出，回到第 2 步看 launcher 日志）。
 
 **Q：能不能在 Chrome 上用？我只看到文档里写 Edge。**

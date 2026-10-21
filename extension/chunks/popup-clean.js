@@ -86,7 +86,8 @@
         var s = el("status");
         if (s) {
           s.textContent += "\n\n启动失败原因: " + e.message +
-            "\n详细日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\host-launcher.log";
+            "\n日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\host-launcher.log" +
+            "\n日志里若写 node.exe not found: 这台机器没装 Node.js, 装完要完全退出浏览器再开";
         }
       });
     } catch (err) { /* ignore */ }
