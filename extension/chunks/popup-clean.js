@@ -6,8 +6,15 @@
   var MAX_RETRY = 5;
 
   function el(id) { return document.getElementById(id); }
+  // 探测地址永远走回环: 0.0.0.0 / :: 只表示"监听所有网卡", 不是可访问的目的地址
+  // (Chromium 直接拒绝 fetch http://0.0.0.0:...), 拿它拼 URL 会让本页误报"服务未运行"。
+  function probeHost() {
+    var h = String(window.__w2o_host || DEFAULTS.host).trim();
+    if (h === "0.0.0.0" || h === "::" || h === "[::]") return "127.0.0.1";
+    return h;
+  }
   function endpoint() {
-    return "http://" + (window.__w2o_host || DEFAULTS.host) + ":" + (window.__w2o_port || DEFAULTS.port);
+    return "http://" + probeHost() + ":" + (window.__w2o_port || DEFAULTS.port);
   }
   function setStatus(text, cls) {
     var s = el("status");

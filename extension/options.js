@@ -102,6 +102,8 @@
   function probeBehavior(host, port) {
     host = host || DEFAULTS.host;
     port = port || DEFAULTS.port;
+    // 0.0.0.0 / :: 是"监听所有网卡", 不能当目的地址用(Chromium 直接拒绝), 探测走回环
+    if (host === "0.0.0.0" || host === "::" || host === "[::]") host = "127.0.0.1";
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 2500);
     fetch("http://" + host + ":" + port + "/health", { signal: ctrl.signal })

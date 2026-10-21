@@ -53,16 +53,35 @@ function registerHook(fn) { hooks.push(fn); }
 function setStartHandler(fn) { startHandler = fn; }
 function setStopHandler(fn) { stopHandler = fn; }
 
-// 来自扩展 START 消息的 host/port 不再覆盖本机配置。
-// 原因: 本扩展派生自 chrome-mcp-server, 其 START 会带上硬编码的 MCP 端口(12306)。
-// 若照单全收, 会先停掉自己的 8090、再去抢被旧 mcp-chrome-bridge 占用的 12306,
-// 触发 EADDRINUSE, 导致 8090 也起不来(设置页探测 /health 永远失败)。
-// 监听地址以 config.json / 环境变量 / --host --port 为单一事实源。
+// 监听地址可以被扩展设置页覆盖: 用户在那里显式选 127.0.0.1 / 0.0.0.0 是明确意图,
+// 忽略它只会让设置页变成摆设(popup 探 0.0.0.0 必然失败, 看起来像"服务没起来")。
+// 改 CONFIG.host 之后由 startHandler(=_startHttpLazy) 检测地址变化并重新 listen。
+// 端口仍然不接受覆盖: 本扩展派生自 chrome-mcp-server, 其 START 会带硬编码的 MCP
+// 端口(12306), 照单全收会先停掉自己的 8090、再去抢可能被占用的 12306, 触发
+// EADDRINUSE, 连 8090 都起不来。监听端口以 config.json / 环境变量 / --port 为准。
+// 只接受真正能当监听地址用的形态: IPv4 / IPv6(必须含冒号) / localhost。
+// 不接受主机名或任意字符串: 设置页只提供 127.0.0.1 与 0.0.0.0 两种选择。
+const BIND_HOST_RE = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F:.]*:[0-9a-fA-F:.]*|localhost)$/;
+function isBindableHost(h) {
+  return typeof h === "string" && h.length > 0 && h.length <= 64 && BIND_HOST_RE.test(h);
+}
+
 function applyConfigFromPayload(payload) {
   const wantPort = payload && Number.isFinite(parseInt(payload.port, 10)) ? parseInt(payload.port, 10) : null;
   const wantHost = payload && typeof payload.host === "string" && payload.host.trim() ? payload.host.trim() : null;
   if (wantHost && wantHost !== CONFIG.host) {
-    log("warn", `extension requested host=${wantHost} but listen host is fixed by config (${CONFIG.host}); ignoring override`);
+    if (isBindableHost(wantHost)) {
+      const prev = CONFIG.host;
+      CONFIG.host = wantHost;
+      if (wantHost === "0.0.0.0" || wantHost === "::") {
+        // 这是真正的风险点, 每次绑定都要在日志里留痕
+        log("warn", `listen host changed ${prev} -> ${wantHost}: this API has NO authentication - anyone who can reach port ${CONFIG.port} can drive this browser (open any page, read whatever is logged in). Use it only on a network you trust.`);
+      } else {
+        log("info", `listen host changed ${prev} -> ${wantHost}; rebinding`);
+      }
+    } else {
+      log("warn", `extension requested host=${wantHost} which is not a valid bind address; keeping ${CONFIG.host}`);
+    }
   }
   if (wantPort && wantPort !== CONFIG.port) {
     log("warn", `extension requested port=${wantPort} but listen port is fixed by config (${CONFIG.port}); ignoring override (legacy chrome-mcp port 12306 collision)`);
@@ -187,4 +206,7 @@ module.exports = {
   setStartHandler,
   setStopHandler,
   startStdio,
+  // 导出仅为可测试/可调试(host 内部由 handleNmMessage 调用)
+  applyConfigFromPayload,
+  isBindableHost,
 };
