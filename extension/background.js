@@ -43866,6 +43866,7 @@ ${sanitizedStack}` : message2
   let reconnectTimer = null;
   let reconnectAttempts = 0;
   let manualDisconnect = false;
+  let settingsRestartChain = Promise.resolve();
   let currentServerStatus = {
     isRunning: false,
     lastUpdated: Date.now()
@@ -44060,6 +44061,29 @@ ${sanitizedStack}` : message2
         ensurePromise = null;
       });
       return ensurePromise;
+    });
+  }
+  // 设置页改 host/port 后的原地重连。串行执行(见消息处理器里的 chain): 连点两次
+  // 保存时, 第二次的参数要紧跟第一次之后生效, 不能被"正在重启中"直接丢掉 ——
+  // 那会让用户改了端口却毫无反应, 比不排队更糟。
+  function runSettingsRestart(portOverride) {
+    return __async(this, null, function* () {
+      if (nativePort) {
+        manualDisconnect = true;
+        try {
+          nativePort.disconnect();
+        } catch (e) {
+        }
+        nativePort = null;
+      }
+      // 旧 host 进程退出需要一点时间, 抢得太快新进程会撞 EADDRINUSE
+      yield new Promise((r) => setTimeout(r, 800));
+      yield setNativeAutoConnectEnabled(true);
+      clearReconnectTimer();
+      reconnectAttempts = 0;
+      const connected = yield ensureNativeConnected("settings_restart", portOverride || void 0);
+      console.debug(`${LOG_PREFIX$3} settings restart finished (connected=${connected === true})`);
+      return connected === true;
     });
   }
   function connectNativeHost(port = NATIVE_HOST.DEFAULT_PORT, host) {
@@ -44353,29 +44377,19 @@ ${sanitizedStack}` : message2
       // 设置页改了 host/port: 以前是直接 chrome.runtime.reload(), 那会把 popup 一起关掉,
       // 用户想看状态还得重新点图标。改为原地重连 native host —— host 收到新连接的
       // START 消息会按新的 host/port 重新绑定(见 host/lib/nm.js applyConfigFromPayload)。
+      //
+      // 必须先 sendResponse 再干活, 原因见下面注释: 重连的第一步是断开旧 native port,
+      // 而那个端口是 service worker 最主要的 keepalive, 断开后 800ms 的重连窗口里
+      // worker 可能被 Chrome 挂起, 把这条消息的通道一起关掉 —— 设置页就会看到
+      // "The message port closed before a response was received", 白吓用户一跳。
+      // 立即回包就没有这个窗口; 真实结果由设置页自己探 /health 确认。
       if (msgType === "restart_native") {
-        (() => __async(null, null, function* () {
-          const portOverride = normalizePort$1(message2.port);
-          if (nativePort) {
-            manualDisconnect = true;
-            try {
-              nativePort.disconnect();
-            } catch (e) {
-            }
-            nativePort = null;
-          }
-          // 旧 host 进程退出需要一点时间, 抢得太快新进程会撞 EADDRINUSE
-          yield new Promise((r) => setTimeout(r, 800));
-          yield setNativeAutoConnectEnabled(true);
-          clearReconnectTimer();
-          reconnectAttempts = 0;
-          const connected = yield ensureNativeConnected("settings_restart", portOverride || void 0);
-          return { success: true, connected: connected === true };
-        }))().then((r) => {
-          sendResponse(r);
-        }).catch((e) => {
-          sendResponse({ success: false, connected: nativePort !== null, error: String(e) });
-        });
+        sendResponse({ success: true, scheduled: true });
+        const portOverride = normalizePort$1(message2.port);
+        // 串行: 上一次重连没结束就排队等它, 而不是丢弃本次的参数。
+        settingsRestartChain = settingsRestartChain
+          .then(() => runSettingsRestart(portOverride))
+          .catch((e) => console.warn(`${LOG_PREFIX$3} settings restart failed: ${String(e)}`));
         return true;
       }
       if (msgType === NativeMessageType.DISCONNECT_NATIVE) {

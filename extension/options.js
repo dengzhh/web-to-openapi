@@ -72,7 +72,8 @@
     var port = parseInt($("port").value, 10);
     if (!port || port < 1 || port > 65535) port = DEFAULTS.port;
     var s = $("status");
-    s.textContent = "已保存, 正在用 " + host + ":" + port + " 重连本地服务...";
+    var label = host + ":" + port;
+    s.textContent = "已保存, 正在用 " + label + " 重连本地服务...";
     // 两个键都要写: webtoopenapi_port 是 popup 探测用的, nativeServerPort 才是
     // background 决定"下发哪个端口给 host"时读的键(getPreferredPort)。以前只写前者,
     // 结果 host 照样绑旧端口, 而 popup 去探新端口 -> 明明保存成功却显示"服务未运行"。
@@ -82,18 +83,45 @@
       nativeServerPort: port
     }, function () {
       chrome.runtime.sendMessage({ type: "restart_native", port: port, host: host }, function (resp) {
-        var err = chrome.runtime.lastError;
-        if (err) {
-          s.textContent = "已保存; 重连指令下发失败: " + err.message;
-          notifySaved();
-          return;
+        // 回包可能根本收不到: 后台重连要先断开旧 native port, 而那是 service worker
+        // 的 keepalive, 断开后的重连窗口里 worker 随时可能被 Chrome 挂起, 消息通道
+        // 随之关闭("The message port closed before a response was received")。
+        // 这不代表保存失败 —— 配置已经落盘, 后台也在按新地址重连, 所以这里不当错误报,
+        // 最终以 /health 的实际探测为准。
+        if (resp && resp.connected) {
+          s.textContent = "已保存, 本地服务已按 " + label + " 重连";
+        } else {
+          s.textContent = "已保存; 正在确认 " + label + " 是否已监听...";
         }
-        s.textContent = resp && resp.connected
-          ? "已保存, 本地服务已按 " + host + ":" + port + " 重连"
-          : "已保存; 本地服务未连接, 下次连接时生效";
         notifySaved();
+        // 无论如何都自己探一次: 端口被别的进程占用时 host 起不来, 那时回包要么是
+        // connected=false 要么收不到, 只有 /health 说的是真话。
+        setTimeout(function () { confirmSaved(host, port); }, 2600);
       });
     });
+  }
+
+  // 保存后自己确认一次真实监听状态, 并把结论写回 #current(探测失败的原因也写上)
+  function confirmSaved(host, port) {
+    var probe = (host === "0.0.0.0" || host === "::" || host === "[::]") ? "127.0.0.1" : host;
+    var s = $("status");
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 2500);
+    fetch("http://" + probe + ":" + port + "/health", { signal: ctrl.signal })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        clearTimeout(timer);
+        if (s) s.textContent = d.listen + " (已按新地址端口生效)";
+        probeService(host, port);
+      })
+      .catch(function () {
+        clearTimeout(timer);
+        if (s) {
+          s.textContent = "已保存; 但 " + host + ":" + port + " 暂未监听" +
+            "(端口可能被占用, 见 openapi-host.log 里的 EADDRINUSE)";
+        }
+        probeService(host, port);
+      });
   }
 
   function reset() {
