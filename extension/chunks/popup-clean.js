@@ -161,6 +161,26 @@
       if (chrome.runtime && chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
       else window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener");
     };
+
+    // 设置里点保存 -> 退回状态视图, 而不是关掉面板。延迟一点是让「已保存...」
+    // 那行提示能被看见; 之后重新读一次 host/port(可能刚改过端口)再探测。
+    window.addEventListener("message", function (ev) {
+      var d = ev.data;
+      if (!d || d.type !== "w2o:settings-saved") return;
+      var f = el("optFrame");
+      if (f && ev.source !== f.contentWindow) return;
+      setTimeout(function () {
+        showView("status");
+        if (chrome && chrome.storage && chrome.storage.local) {
+          chrome.storage.local.get(["webtoopenapi_host", "webtoopenapi_port"], function (cfg) {
+            window.__w2o_host = cfg.webtoopenapi_host || DEFAULTS.host;
+            window.__w2o_port = cfg.webtoopenapi_port || DEFAULTS.port;
+            start();
+          });
+        } else { start(); }
+      }, 900);
+    });
+
     showView("status");
     bindDocs();
   }

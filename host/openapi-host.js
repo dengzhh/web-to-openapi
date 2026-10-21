@@ -45,6 +45,30 @@
  */
 
 const { CONFIG, SERVICE, VERSION } = require("./lib/config");
+
+// stderr 副本由 host 自己追加写, 不靠 run_host.bat 的 "2>>"。
+// 原因: 已经有一个 host 在跑时(两个浏览器 / 残留进程), cmd 打不开这个文件做追加,
+// 而重定向失败会让 cmd 把整条脚本剩下的命令全部作废 —— node 根本不会被执行,
+// 浏览器只会报 "Error when communicating with the native messaging host",
+// 两个日志文件都是空的, 完全查不出原因。node 的追加写允许多进程共存。
+(function teeStderrToFile() {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const dir = process.env.WEBTOOPENAPI_LOG_DIR ||
+      path.join(process.env.LOCALAPPDATA || __dirname, "webtoopenapi", "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    const fd = fs.openSync(path.join(dir, "host-stderr.log"), "a");
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = function (chunk, enc, cb) {
+      try {
+        fs.writeSync(fd, typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk);
+      } catch (e) { /* 写不进日志也不能影响 host */ }
+      return origWrite(chunk, enc, cb);
+    };
+  } catch (e) { /* 日志不可用时就只用 openapi-host.log */ }
+})();
+
 const { log } = require("./lib/log");
 const nm = require("./lib/nm");
 const util = require("./lib/util");

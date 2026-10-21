@@ -44350,6 +44350,34 @@ ${sanitizedStack}` : message2
         sendResponse({ connected, autoConnectEnabled });
         return true;
       }
+      // 设置页改了 host/port: 以前是直接 chrome.runtime.reload(), 那会把 popup 一起关掉,
+      // 用户想看状态还得重新点图标。改为原地重连 native host —— host 收到新连接的
+      // START 消息会按新的 host/port 重新绑定(见 host/lib/nm.js applyConfigFromPayload)。
+      if (msgType === "restart_native") {
+        (() => __async(null, null, function* () {
+          const portOverride = normalizePort$1(message2.port);
+          if (nativePort) {
+            manualDisconnect = true;
+            try {
+              nativePort.disconnect();
+            } catch (e) {
+            }
+            nativePort = null;
+          }
+          // 旧 host 进程退出需要一点时间, 抢得太快新进程会撞 EADDRINUSE
+          yield new Promise((r) => setTimeout(r, 800));
+          yield setNativeAutoConnectEnabled(true);
+          clearReconnectTimer();
+          reconnectAttempts = 0;
+          const connected = yield ensureNativeConnected("settings_restart", portOverride || void 0);
+          return { success: true, connected: connected === true };
+        }))().then((r) => {
+          sendResponse(r);
+        }).catch((e) => {
+          sendResponse({ success: false, connected: nativePort !== null, error: String(e) });
+        });
+        return true;
+      }
       if (msgType === NativeMessageType.DISCONNECT_NATIVE) {
         (() => __async(null, null, function* () {
           yield setNativeAutoConnectEnabled(false);

@@ -83,8 +83,22 @@ function applyConfigFromPayload(payload) {
       log("warn", `extension requested host=${wantHost} which is not a valid bind address; keeping ${CONFIG.host}`);
     }
   }
+  // 端口覆盖原本被完全拒绝(历史原因: 老 chrome-mcp 扩展会传 12306, 照单全收会
+  // 先停掉自己的 8090 再去抢可能被占用的 12306)。但设置页摆着一个端口输入框,
+  // 用户填了却没反应, 而扩展探测地址又跟着变 -> 状态页直接显示"服务未运行",
+  // 比不改更糟。现在接受覆盖: 端口来自用户显式设置, 且绑定失败时 startHttp 有
+  // 5s 重试兜底(不会永久起不来), 改动也会在日志里留痕。
   if (wantPort && wantPort !== CONFIG.port) {
-    log("warn", `extension requested port=${wantPort} but listen port is fixed by config (${CONFIG.port}); ignoring override (legacy chrome-mcp port 12306 collision)`);
+    if (wantPort >= 1 && wantPort <= 65535) {
+      const prevPort = CONFIG.port;
+      CONFIG.port = wantPort;
+      log("info", `listen port changed ${prevPort} -> ${wantPort}; rebinding`);
+      if (CONFIG.host === "0.0.0.0" || CONFIG.host === "::") {
+        log("warn", `listening on ${CONFIG.host}:${CONFIG.port} with NO authentication - anyone who can reach this port can drive this browser. Use it only on a network you trust.`);
+      }
+    } else {
+      log("warn", `extension requested invalid port=${wantPort}; keeping ${CONFIG.port}`);
+    }
   }
 }
 

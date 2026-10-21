@@ -21,6 +21,8 @@
 | 设置页填了 `0.0.0.0` 后 popup 报服务未运行 | 目的地址仍要写 `127.0.0.1`，`0.0.0.0` 只能用于监听；代价见 [README → 隐私与安全](README.md#隐私与安全) |
 | 改了设置页的值但行为没变 | 保存后扩展需重新加载；`page_mode` 只在扩展重连时下发（见 [README → 配置监听地址](README.md#配置监听地址--端口在插件设置里改)） |
 | 扩展「错误」页刷出多条 `Permissions policy violation: unload is not allowed in this document.` | 旧版内容脚本注册了已废弃的 `unload` 监听器，每个标签页各记一条。新版改用 `pagehide`，升级后点「清除全部」即消失，见[下方问答](#常见问题) |
+| 第二个浏览器 / 重开后报 `Error when communicating with the native messaging host`，且 `openapi-host.log` 里**没有任何新日志** | 已有一个 host 在跑，启动器打不开共享的 `host-stderr.log` 做追加，cmd 把整条启动命令作废 —— node 从未被执行，两个日志全空。新版已改由 host 自己追加写 stderr，见[下方问答](#常见问题) |
+| 设置页填了新端口，保存成功但状态仍显示「本地服务未运行」 | 旧版 host 拒绝覆盖端口、而探测地址又跟着变。新版已打通：合法端口（1–65535）保存后立即重绑；若仍失败，看 `openapi-host.log` 里的 `http bind failed ... EADDRINUSE`（端口被别人占了） |
 
 ---
 
@@ -28,7 +30,8 @@
 
 - **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
 - **日志**（都在 `%LOCALAPPDATA%\webtoopenapi\logs\`）：
-  - `host-stderr.log` —— host 自身的运行日志（协议走 stdout，日志只走 stderr + 文件）；
+  - `openapi-host.log` —— host 的运行日志，`log()` 逐行追加打开。**多进程可同时追加**（两个浏览器、残留进程并存时互不干扰），「服务起不来 / 端口没切过去」主要看这里：`listen port changed 8090 -> 8099` 说明端口覆盖已生效，`http bind failed ... EADDRINUSE` 说明端口被占。
+  - `host-stderr.log` —— host 进程的 stderr 副本（协议帧走 stdout，所以日志不能占 stdout）。由 `openapi-host.js` 顶部自己打开追加；**早期版本是让 `run_host.bat` 用 `2>>` 追加的，那会在第二个 host 启动时直接失败**，见[下方问答](#常见问题)。
   - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起、node 的命中来源（`node source=`）、失败原因。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起（最常见是注册表问题，见[「Specified native messaging host not found」](#提示specified-native-messaging-host-not-found)）；有 `ERROR: node.exe is not on PATH` = 浏览器进程的 PATH 里没有 node，紧随其后的 `launcher PATH=` 就是启动器当时看到的那条 PATH。
 - **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
@@ -166,3 +169,14 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 - 新版改法：换成 `pagehide`，并在 `event.persisted === true`（进 bfcache）时跳过清理，语义与原来一致但不再违规。
 - 实测（Edge 155）：文档响应头带 `permissions-policy: unload=()` 时，注册 `unload` → 2 条违规（console + `Log.entryAdded/violation`）；注册 `pagehide` → 0 条。
 - 处理：重新加载新版扩展 → 刷新已打开的标签页（内容脚本只对新页面生效）→ 在错误页点「清除全部」。
+
+**Q：第二个浏览器（或残留 host）启动后报 `Error when communicating with the native messaging host`，而 `openapi-host.log` 里没有任何新日志？**
+这是旧版启动器的自伤，**不是扩展或 node 的问题**，且排查起来很别扭：浏览器只给一句笼统的「native messaging host 通信失败」，而两个日志文件都是空的，看不出任何原因。
+
+- 机制：`run_host.bat` 用 `2>> "%LOG_FILE%"` 把 host 的 stderr 追加到共享的 `host-stderr.log`。当已有一个 host 在跑（两个浏览器 / 残留进程 / 上一个还没退出），cmd 打不开这个文件做追加，报「另一个程序正在使用此文件」——**而重定向失败会让 cmd 把该行及其后剩下的命令全部作废**，node 从未被执行。启动器日志停在 `starting host` 那一行，host 侧一条记录都没有。
+- 实测（ASCII 路径双开，修复前/后对照）：修复前第二个 bat 只报文件被占用、node 不执行；修复后两个 host 分别在 8091/8092 起服务，两个日志都正常写入。
+- 修法：`2>>` 已从启动器里删除，改由 `openapi-host.js` 顶部用 `fs.openSync(..., "a")` 自己追加写 stderr —— node 的追加写允许多进程共存，cmd 层的重定向失败也就无从发生。
+- 顺带说一句：同时跑两个 host 本身仍不建议，两个实例会争抢同一个端口（日志里是 `http bind failed ... EADDRINUSE`，输的那个每 5 秒重试一次），请求由哪个浏览器执行也不确定。要同时用两个浏览器，就在其中一个的插件设置里换个端口。
+
+**Q：设置页填了新端口，保存时提示成功，状态却显示「本地服务未运行」？**
+同样是旧版遗留：host 侧**刻意拒绝**扩展下发的端口覆盖，而扩展的探测地址又跟着变，于是「保存成功但探不到服务」。现在两端都打通了——host 接受 1–65535 的合法端口并立即重绑（`listen port changed 8090 -> 8099`），绑定失败时每 5 秒重试，不会永久起不来。保存后 popup 会退回状态视图，面板不关闭，可以直接看到新端口是否已生效。

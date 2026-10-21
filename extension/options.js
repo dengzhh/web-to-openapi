@@ -1,6 +1,6 @@
 // Web To OpenAPI 设置页逻辑
 // 配置保存在 chrome.storage.local:
-//   webtoopenapi_host / webtoopenapi_port   -> 服务监听地址(保存后 chrome.runtime.reload())
+//   webtoopenapi_host / webtoopenapi_port   -> 服务监听地址(保存后通知后台原地重连, 不重载扩展)
 //   webtoopenapi_behavior(JSON 字符串)      -> 浏览器行为 page_mode/keep_tab_ms(经消息下发 host, 不重载扩展)
 //   webtoopenapi_baidu_defaults(JSON 字符串) -> 百度搜索默认参数(经消息下发 host, 不重载扩展)
 //   webtoopenapi_google_defaults(JSON 字符串) -> 谷歌搜索默认参数(经消息下发 host, 不重载扩展)
@@ -56,15 +56,43 @@
     });
   }
 
+  // 本页被嵌在 popup 的 iframe 里时, 保存完通知父面板退回状态视图。
+  // 以前改 host/port 靠 chrome.runtime.reload() 生效 —— 那会连 popup 一起关掉,
+  // 用户想看状态只能回去重新点插件图标。现在改走 restart_native 原地重连。
+  function notifySaved() {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: "w2o:settings-saved" }, "*");
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   function save() {
     var host = ($("host").value || "").trim() || DEFAULTS.host;
     var port = parseInt($("port").value, 10);
     if (!port || port < 1 || port > 65535) port = DEFAULTS.port;
-    chrome.storage.local.set({ webtoopenapi_host: host, webtoopenapi_port: port }, function () {
-      var s = $("status");
-      s.textContent = "已保存, 正在重新加载扩展以应用 " + host + ":" + port + " ...";
-      // 让提示先渲染, 再重载
-      setTimeout(function () { chrome.runtime.reload(); }, 600);
+    var s = $("status");
+    s.textContent = "已保存, 正在用 " + host + ":" + port + " 重连本地服务...";
+    // 两个键都要写: webtoopenapi_port 是 popup 探测用的, nativeServerPort 才是
+    // background 决定"下发哪个端口给 host"时读的键(getPreferredPort)。以前只写前者,
+    // 结果 host 照样绑旧端口, 而 popup 去探新端口 -> 明明保存成功却显示"服务未运行"。
+    chrome.storage.local.set({
+      webtoopenapi_host: host,
+      webtoopenapi_port: port,
+      nativeServerPort: port
+    }, function () {
+      chrome.runtime.sendMessage({ type: "restart_native", port: port, host: host }, function (resp) {
+        var err = chrome.runtime.lastError;
+        if (err) {
+          s.textContent = "已保存; 重连指令下发失败: " + err.message;
+          notifySaved();
+          return;
+        }
+        s.textContent = resp && resp.connected
+          ? "已保存, 本地服务已按 " + host + ":" + port + " 重连"
+          : "已保存; 本地服务未连接, 下次连接时生效";
+        notifySaved();
+      });
     });
   }
 
@@ -128,15 +156,17 @@
     chrome.storage.local.set({ webtoopenapi_behavior: JSON.stringify(d) }, function () {
       chrome.runtime.sendMessage({ type: "set_service_config", config: d }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; return; }
+        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; notifySaved(); return; }
         if (resp && resp.pushed) {
           s.textContent = "已保存并生效(本地服务已接收)";
+          notifySaved();
           // 回读 host 当前生效值, 确认真的改掉了(而不是只存进了扩展)
           chrome.storage.local.get(["webtoopenapi_host", "webtoopenapi_port"], function (cfg) {
             probeBehavior(cfg.webtoopenapi_host || DEFAULTS.host, cfg.webtoopenapi_port || DEFAULTS.port);
           });
         } else {
           s.textContent = "已存入扩展; 本地服务未连接, 下次连接时自动同步";
+          notifySaved();
         }
       });
     });
@@ -148,8 +178,9 @@
       fillBehaviorForm({});
       chrome.runtime.sendMessage({ type: "reset_service_config" }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已恢复默认; 下发失败: " + err.message; return; }
+        if (err) { s.textContent = "已恢复默认; 下发失败: " + err.message; notifySaved(); return; }
         s.textContent = "已恢复默认并生效";
+        notifySaved();
       });
     });
   }
@@ -205,9 +236,10 @@
     chrome.storage.local.set({ webtoopenapi_baidu_defaults: JSON.stringify(d) }, function () {
       chrome.runtime.sendMessage({ type: "set_baidu_defaults", defaults: d }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; return; }
-        if (resp && resp.pushed) s.textContent = "已保存并生效(本地服务已接收)";
-        else s.textContent = "已存入扩展; 本地服务未连接, 下次连接时自动同步";
+        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; notifySaved(); return; }
+        if (resp && resp.pushed) { s.textContent = "已保存并生效(本地服务已接收)"; }
+        else { s.textContent = "已存入扩展; 本地服务未连接, 下次连接时自动同步"; }
+        notifySaved();
       });
     });
   }
@@ -218,9 +250,10 @@
       fillBaiduForm({});
       chrome.runtime.sendMessage({ type: "set_baidu_defaults", defaults: {} }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已清空; 下发失败: " + err.message; return; }
-        if (resp && resp.pushed) s.textContent = "已清空并生效";
-        else s.textContent = "已清空; 本地服务未连接, 下次连接时自动同步";
+        if (err) { s.textContent = "已清空; 下发失败: " + err.message; notifySaved(); return; }
+        if (resp && resp.pushed) { s.textContent = "已清空并生效"; }
+        else { s.textContent = "已清空; 本地服务未连接, 下次连接时自动同步"; }
+        notifySaved();
       });
     });
   }
@@ -300,9 +333,10 @@
     chrome.storage.local.set({ webtoopenapi_google_defaults: JSON.stringify(d) }, function () {
       chrome.runtime.sendMessage({ type: "set_google_defaults", defaults: d }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; return; }
-        if (resp && resp.pushed) s.textContent = "已保存并生效(本地服务已接收)";
-        else s.textContent = "已存入扩展; 本地服务未连接, 下次连接时自动同步";
+        if (err) { s.textContent = "已存入扩展; 但下发失败: " + err.message; notifySaved(); return; }
+        if (resp && resp.pushed) { s.textContent = "已保存并生效(本地服务已接收)"; }
+        else { s.textContent = "已存入扩展; 本地服务未连接, 下次连接时自动同步"; }
+        notifySaved();
       });
     });
   }
@@ -313,9 +347,10 @@
       fillGoogleForm({});
       chrome.runtime.sendMessage({ type: "set_google_defaults", defaults: {} }, function (resp) {
         var err = chrome.runtime.lastError;
-        if (err) { s.textContent = "已清空; 下发失败: " + err.message; return; }
-        if (resp && resp.pushed) s.textContent = "已清空并生效";
-        else s.textContent = "已清空; 本地服务未连接, 下次连接时自动同步";
+        if (err) { s.textContent = "已清空; 下发失败: " + err.message; notifySaved(); return; }
+        if (resp && resp.pushed) { s.textContent = "已清空并生效"; }
+        else { s.textContent = "已清空; 本地服务未连接, 下次连接时自动同步"; }
+        notifySaved();
       });
     });
   }

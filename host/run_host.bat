@@ -17,12 +17,21 @@ REM Why the logging: the browser discards this script's stderr pipe, so a failed
 REM spawn used to leave no trace at all. Breadcrumbs go to host-launcher.log - a
 REM separate file, because a live host holds a handle on host-stderr.log and
 REM Windows refuses a second appender ("another program is using this file").
+REM
+REM Never redirect the host's stderr with "2>>" here. When a host is already
+REM running (two browsers, or a leftover process), cmd cannot open the file for
+REM append, and a failed redirection is FATAL for the rest of this script: cmd
+REM reports "The process cannot access the file because it is being used by
+REM another process" and never executes node at all. The browser then says
+REM "Error when communicating with the native messaging host" and both logs stay
+REM empty. Instead the host tees its own stderr into host-stderr.log from inside
+REM node (lib/log.js), where appends from several processes are allowed.
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "NODE_SCRIPT=%SCRIPT_DIR%\openapi-host.js"
 set "LOG_DIR=%LOCALAPPDATA%\webtoopenapi\logs"
-set "LOG_FILE=%LOG_DIR%\host-stderr.log"
+REM LOG_FILE (host-stderr.log) is written by the host itself now, see below.
 set "LAUNCHER_LOG=%LOG_DIR%\host-launcher.log"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" 2>nul
 
@@ -61,7 +70,7 @@ if not exist "%NODE_SCRIPT%" (
 
 REM No "->" in this message: call re-parses its arguments, ">" becomes a redirect.
 call :log "launcher: node source=%NODE_SRC% path=%NODE_EXEC%; starting host"
-"%NODE_EXEC%" "%NODE_SCRIPT%" --config "%SCRIPT_DIR%\config.json" 2>> "%LOG_FILE%"
+"%NODE_EXEC%" "%NODE_SCRIPT%" --config "%SCRIPT_DIR%\config.json"
 exit /B %ERRORLEVEL%
 
 REM ---------------------------------------------------------------------------
