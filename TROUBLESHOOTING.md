@@ -20,6 +20,7 @@
 | `window-front` 第二次调用起窗口不再弹出来 | 旧版复用标签时只换 URL、不激活窗口，窗口被遮挡就完全看不到（只剩调试黄条一闪）。新版 [README → 页面打开策略](README.md#页面打开策略默认不弹窗) 已修：复用路径也会 `windows.update({focused:true})`。确认扩展已重新加载 |
 | 设置页填了 `0.0.0.0` 后 popup 报服务未运行 | 目的地址仍要写 `127.0.0.1`，`0.0.0.0` 只能用于监听；代价见 [README → 隐私与安全](README.md#隐私与安全) |
 | 改了设置页的值但行为没变 | 保存后扩展需重新加载；`page_mode` 只在扩展重连时下发（见 [README → 配置监听地址](README.md#配置监听地址--端口在插件设置里改)） |
+| 扩展「错误」页刷出多条 `Permissions policy violation: unload is not allowed in this document.` | 旧版内容脚本注册了已废弃的 `unload` 监听器，每个标签页各记一条。新版改用 `pagehide`，升级后点「清除全部」即消失，见[下方问答](#常见问题) |
 
 ---
 
@@ -157,3 +158,11 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 
 **Q：为什么要 20 秒，明明浏览器里一两秒就出结果？**
 因为浏览器窗口被最小化或被别的窗口完全遮挡时，Chromium 会冻结不可见标签的渲染与网络。把浏览器窗口露出来（不需要操作）就会回到正常速度。这是浏览器行为，任何扩展方案都绕不过去。
+
+**Q：扩展的「错误」页里刷出一堆 `Permissions policy violation: unload is not allowed in this document.`？**
+这是旧版内容脚本留下的噪音，**不影响任何功能**。
+
+- 来源：`content-scripts/element-picker.js` 与 `content-scripts/quick-panel.js` 注入 `<all_urls>`，旧版用 `window.addEventListener("unload", ...)` 做页面退出清理。Chromium 已把 `unload` 移出默认 Permissions Policy allowlist（`Permissions-Policy: unload=()`），对这类文档注册监听器就报这条 —— 注入到几个标签页就记几条，容易把真错误淹掉。
+- 新版改法：换成 `pagehide`，并在 `event.persisted === true`（进 bfcache）时跳过清理，语义与原来一致但不再违规。
+- 实测（Edge 155）：文档响应头带 `permissions-policy: unload=()` 时，注册 `unload` → 2 条违规（console + `Log.entryAdded/violation`）；注册 `pagehide` → 0 条。
+- 处理：重新加载新版扩展 → 刷新已打开的标签页（内容脚本只对新页面生效）→ 在错误页点「清除全部」。

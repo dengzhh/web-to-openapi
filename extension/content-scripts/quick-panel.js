@@ -2675,7 +2675,8 @@ var __async = (__this, __arguments, generator) => {
         return false;
       }
       chrome.runtime.onMessage.addListener(handleMessage);
-      window.addEventListener("unload", () => {
+      window.addEventListener("pagehide", (event) => {
+        if (event.persisted) return;
         chrome.runtime.onMessage.removeListener(handleMessage);
         if (controller) {
           controller.dispose();
