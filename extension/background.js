@@ -3368,8 +3368,22 @@ var __yieldStar = (value) => {
         const { tabId, windowId } = args;
         console.log(`Attempting to switch to tab ID: ${tabId} in window ID: ${windowId}`);
         try {
-          if (windowId !== void 0) {
-            yield chrome.windows.update(windowId, { focused: true });
+          // 没给 windowId 时从标签反查。只把标签设成 active 而不把窗口 focused,
+          // 窗口被别的窗口遮挡/最小化时用户看不到任何变化 —— window-front 的
+          // "把页面推到眼前"就失效了(屏幕上只剩 CDP 调试信息栏闪一下)。
+          let targetWindowId = windowId;
+          if (targetWindowId === void 0) {
+            const t = yield chrome.tabs.get(tabId);
+            targetWindowId = t == null ? void 0 : t.windowId;
+          }
+          if (targetWindowId !== void 0) {
+            try {
+              yield chrome.windows.update(targetWindowId, { focused: true });
+            } catch (e2) {
+              // 最小化窗口: focused 不够, 还得把状态拉回 normal
+              console.warn("windows.update(focused) failed, retrying with state=normal:", e2);
+              yield chrome.windows.update(targetWindowId, { state: "normal", focused: true });
+            }
           }
           yield chrome.tabs.update(tabId, { active: true });
           const updatedTab = yield chrome.tabs.get(tabId);

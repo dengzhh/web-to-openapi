@@ -145,7 +145,7 @@ Chrome 用户请注意三点：
 | `tab` | **后台标签**：复用当前窗口，不新建窗口、不抢焦点，完成后自动关闭 | 平时使用 |
 | `window` | 独立窗口但**不激活**（`focused:false`），完成后关标签、窗口随之消失 | 想在视觉上隔开 |
 | `window-corner` | **右下角小窗口**（约 360×280 的 popup，不激活），只占角落 | 嫌 `window` 大窗挡屏幕时 |
-| `window-front` | 独立窗口并**激活**（旧行为：每次调用都弹窗抢焦点） | 需要最快速度、可被打断时 |
+| `window-front` | 独立窗口并**激活**（旧行为：每次调用都弹窗抢焦点；复用已有标签时也会把窗口提到前台） | 需要人眼看结果、可被打断时 |
 
 也可以只临时改一次：`WEBTOOPENAPI_PAGE_MODE=auto|tab|window|window-corner|window-front` 环境变量。三种方式的优先级：**扩展设置页 > `config.json` > 环境变量**。
 
@@ -157,6 +157,10 @@ Chrome 用户请注意三点：
 ```
 
 **另一种「没看到窗口」是命中缓存**：同一段文本在 `keep_tab_ms`（默认 3 分钟）内再请求，会直接返回上次结果，**完全不碰浏览器**，日志是 `translate[baidu] 命中上次结果(同一请求), 跳过浏览器`。想验证窗口行为，换一段文本再调。
+
+**第三次「没看到窗口」是复用不抢焦点**（已修）：`keep_tab_ms` 内第二次调用走的是「同一个标签页换参数」，原本只改 URL、不激活窗口。窗口若被别的窗口盖住，页面上唯一动静就是下面那条调试提示条，看起来像「接口跑了但窗口没弹」。现在 `window-front` 的复用路径会显式 `chrome_switch_tab`（含 `windows.update({focused:true})`）把窗口推到前台，`tab` / `window` / `window-corner` 仍然保持不抢焦点。
+
+**页面顶部一闪而过的「debug」提示条是正常的**：扩展读页面 DOM 走 `chrome.debugger`（CDP），Chromium 会在被附着的标签页顶部显示一条信息栏（中文「『Web To OpenAPI』已开始调试此浏览器」/ 英文 `... started debugging this browser`），读取完成即 `detach`，信息栏随之消失。它不是报错，也无法通过配置关闭——除非放弃 CDP 解析（那会把「拿到未脱敏 DOM」这项能力一起丢掉）。用 `tab` 模式时它出现在后台标签里，所以平时看不到；`window-front` 把窗口推到前台，才第一次看见它。
 
 **`window-corner` 的实测结论（2026-10-20/21，本机 Edge）**：小窗落在右下角任务栏上方、`focused:false`、`state:normal`。屏幕大小由扩展用「最大化窗口尺寸 + 14px」推断（MV3 service worker 里没有 `window.screen`，Edge 也没有 `chrome.system.display`），推断值按 session 缓存。两种桌面下的表现：
 

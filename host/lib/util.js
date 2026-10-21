@@ -336,6 +336,17 @@ function setPooledTab(key, tabId, mode) {
  * 复用或新开: 返回 { tabId, warm, mode }
  * warm=true 表示没有重载文档(纯页内换参), 这是"第 2 次调用更快"的关键。
  */
+/*
+ * window-front 的语义是「每次调用都把页面推到眼前」。
+ * 池复用只换参数(或重载文档), 不会激活窗口 —— 窗口若被别的窗口盖住, 用户看不到任何变化,
+ * 屏幕上唯一动静是 chrome_javascript 走 CDP 时 Chromium 闪一下的调试信息栏。
+ * 所以复用路径要显式把窗口提到前台; 其余模式(后台标签/不抢焦点)一律不动。
+ */
+async function raiseForFront(m, tabId) {
+  if (m !== "window-front") return;
+  await focusTab({ tabId });
+}
+
 async function acquirePooled(key, url, opts) {
   const k = poolKey(key);
   const e = poolEntry(k);
@@ -344,6 +355,7 @@ async function acquirePooled(key, url, opts) {
       await swapUrlInTab(e.tabId, url);
       armPoolTimer(k);
       log("browser", `reuse page key=${k} tab=${e.tabId} (页内换参, 未重载)`);
+      await raiseForFront(e.mode || getCfg().page_mode, e.tabId);
       return { tabId: e.tabId, warm: true, mode: e.mode || null };
     } catch (err) {
       log("warn", `reuse page key=${k} 页内换参失败: ${err.message}; 退化为原标签页重载`);
@@ -352,6 +364,7 @@ async function acquirePooled(key, url, opts) {
         setPooledTab(k, tabId, e.mode);
         armPoolTimer(k);
         log("browser", `reload pooled tab=${tabId} url=${url.slice(0, 100)}`);
+        await raiseForFront(e.mode || getCfg().page_mode, tabId);
         return { tabId, warm: false, mode: e.mode || null };
       } catch (err2) {
         // tab_gone: 用户把 window-front 的窗口关掉了(或标签被关闭) -> 丢掉池子里的死记录,
