@@ -1,22 +1,22 @@
 @echo off
 setlocal
-REM web-to-openapi native host launcher (pure ASCII - cmd parses this file in the
-REM OEM/GBK codepage, so any non-ASCII byte here corrupts the line parsing).
-REM Launched by the browser (Edge/Chrome) via native messaging; stdio carries the protocol.
+REM web-to-openapi native host launcher. Pure ASCII (cmd parses this file in the
+REM OEM codepage - non-ASCII bytes here corrupt line parsing).
 REM
-REM Why the logging below matters: the browser DISCARDS this launcher's stderr pipe,
-REM so a failed spawn (node not found, script missing) used to leave zero trace in
-REM the logs - indistinguishable from "the browser never tried". Every attempt and
-REM every failure reason is now appended to host-launcher.log.
-REM NOTE: launcher lines go to their OWN file, not host-stderr.log: a running host
-REM holds an open handle on host-stderr.log, and Windows denies a second append
-REM handle while it is open ("another program is using this file"), which silently
-REM swallowed launcher breadcrumbs whenever a host was alive.
+REM node is resolved the normal Windows way: PATH. Nothing else. The browser hands
+REM this script the environment of the BROWSER process, so node has to be on the
+REM PATH that the browser sees - i.e. the system/user PATH, which Explorer passes
+REM down. Editing PATH therefore requires a FULL browser restart (closing windows
+REM is not enough; check Task Manager for leftover msedge/chrome processes).
 REM
-REM The browser passes ITS OWN environment to this script - not the environment of
-REM your cmd window. A node.exe that works in cmd can still be invisible here
-REM (very common: node shipped inside another app's runtime folder, or installed
-REM after the browser started). Hence the wide probe list + the node-path.txt pin.
+REM Two optional overrides, only for machines where PATH cannot be edited:
+REM   node-path.txt            next to this file, one line, absolute path, no quotes
+REM   WEBTOOPENAPI_NODE        environment variable
+REM
+REM Why the logging: the browser discards this script's stderr pipe, so a failed
+REM spawn used to leave no trace at all. Breadcrumbs go to host-launcher.log - a
+REM separate file, because a live host holds a handle on host-stderr.log and
+REM Windows refuses a second appender ("another program is using this file").
 
 set "SCRIPT_DIR=%~dp0"
 if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
@@ -26,64 +26,30 @@ set "LOG_FILE=%LOG_DIR%\host-stderr.log"
 set "LAUNCHER_LOG=%LOG_DIR%\host-launcher.log"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" 2>nul
 
-REM NOTE: do NOT log SCRIPT_DIR here. cmd expands %~dp0 to OEM (GBK) bytes; writing
-REM a Chinese folder name into this UTF-8 log produces mojibake that makes the file
-REM look binary to grep. The host itself logs its own absolute config path in UTF-8.
+REM No SCRIPT_DIR in the log: %~dp0 is OEM/GBK bytes and would turn this UTF-8 log
+REM into mojibake (grep then treats it as binary).
 call :log "launcher invoked"
 
-REM ---------------------------------------------------------------------------
-REM node discovery, most explicit first:
-REM   1. node-path.txt next to this file  (manual pin, survives reinstalls)
-REM   2. WEBTOOPENAPI_NODE                (env var)
-REM   3. PATH / where.exe                 (the browser's inherited PATH)
-REM   4. known installer layouts          (msi / nvm / volta / scoop / choco)
-REM   5. node bundled inside other apps   (WorkBuddy, DeepSeek Harness, ...)
-REM ---------------------------------------------------------------------------
 set "NODE_EXEC="
 set "NODE_SRC="
 
-if exist "%SCRIPT_DIR%\node-path.txt" (
-  for /f "usebackq delims=" %%L in ("%SCRIPT_DIR%\node-path.txt") do if not defined NODE_EXEC call :trypin "%%~L"
-)
+if exist "%SCRIPT_DIR%\node-path.txt" for /f "usebackq delims=" %%L in ("%SCRIPT_DIR%\node-path.txt") do if not defined NODE_EXEC call :trypin "%%~L"
 
 if not defined NODE_EXEC if defined WEBTOOPENAPI_NODE call :try "env WEBTOOPENAPI_NODE" "%WEBTOOPENAPI_NODE%"
 
+REM The standard lookup: whatever PATH resolves node.exe to.
 if not defined NODE_EXEC for %%I in (node.exe) do if exist "%%~$PATH:I" call :try "PATH" "%%~$PATH:I"
 
-if not defined NODE_EXEC for /f "delims=" %%I in ('where node.exe 2^>nul') do if not defined NODE_EXEC call :try "where.exe" "%%I"
-
-if not defined NODE_EXEC call :try "ProgramFiles" "%ProgramFiles%\nodejs\node.exe"
-if not defined NODE_EXEC call :try "ProgramFiles(x86)" "%ProgramFiles(x86)%\nodejs\node.exe"
-if not defined NODE_EXEC call :try "LOCALAPPDATA\Programs" "%LOCALAPPDATA%\Programs\nodejs\node.exe"
-if not defined NODE_EXEC if defined NVM_SYMLINK call :try "NVM_SYMLINK" "%NVM_SYMLINK%\node.exe"
-if not defined NODE_EXEC if defined NVM_HOME call :try "NVM_HOME" "%NVM_HOME%\node.exe"
-if not defined NODE_EXEC call :try "APPDATA\nvm" "%APPDATA%\nvm\node.exe"
-if not defined NODE_EXEC call :try "Volta" "%LOCALAPPDATA%\Volta\bin\node.exe"
-if not defined NODE_EXEC call :try "scoop" "%USERPROFILE%\scoop\apps\nodejs\current\node.exe"
-if not defined NODE_EXEC call :try "scoop-lts" "%USERPROFILE%\scoop\apps\nodejs-lts\current\node.exe"
-if not defined NODE_EXEC call :try "chocolatey" "%ProgramData%\chocolatey\bin\node.exe"
-if not defined NODE_EXEC call :try "nvs" "%LOCALAPPDATA%\nvs\node.exe"
-
-REM nvm-windows stores each version in its own folder
-if not defined NODE_EXEC if exist "%APPDATA%\nvm" for /d %%D in ("%APPDATA%\nvm\v*") do if not defined NODE_EXEC call :try "APPDATA\nvm\v*" "%%~fD\node.exe"
-
-REM WorkBuddy-style managed runtimes (versioned folders)
-if not defined NODE_EXEC if exist "%USERPROFILE%\.workbuddy\binaries\node\versions" for /d %%D in ("%USERPROFILE%\.workbuddy\binaries\node\versions\*") do if not defined NODE_EXEC call :try "workbuddy runtime" "%%~fD\node.exe"
-
-REM node bundled inside another installed app (Electron/CLI runtimes)
-if not defined NODE_EXEC if exist "%LOCALAPPDATA%\Programs" for /d %%D in ("%LOCALAPPDATA%\Programs\*") do if not defined NODE_EXEC call :try "app runtime: %%~nxD" "%%~fD\resources\runtime\cli\bin\node.exe"
-if not defined NODE_EXEC if exist "%LOCALAPPDATA%\Programs" for /d %%D in ("%LOCALAPPDATA%\Programs\*") do if not defined NODE_EXEC call :try "app runtime: %%~nxD" "%%~fD\resources\runtime\node.exe"
+REM Same PATH, second opinion (%%~$PATH:I can miss quoted entries).
+if not defined NODE_EXEC for /f "delims=" %%I in ('where node.exe 2^>nul') do if not defined NODE_EXEC call :try "PATH (where.exe)" "%%I"
 
 if not defined NODE_EXEC (
-  echo [web-to-openapi] ERROR: node.exe not found 1>&2
-  echo [web-to-openapi] install Node.js LTS, or write the full path of node.exe 1>&2
-  echo [web-to-openapi] into "%SCRIPT_DIR%\node-path.txt" ^(one line, no quotes^) 1>&2
-  call :log "ERROR: node.exe not found"
-  REM No pipe/redirect characters in this argument: `call` re-parses its arguments,
-  REM so "|" gets executed as a pipeline instead of being logged.
-  call :log "searched: node-path.txt; WEBTOOPENAPI_NODE; PATH; where.exe; ProgramFiles\nodejs; ProgramFiles(x86)\nodejs; LOCALAPPDATA\Programs\nodejs; NVM_SYMLINK; NVM_HOME; APPDATA\nvm; APPDATA\nvm\v*; Volta\bin; scoop\apps\nodejs(-lts)\current; chocolatey\bin; LOCALAPPDATA\nvs; .workbuddy\binaries\node\versions\*; LOCALAPPDATA\Programs\*\resources\runtime"
+  echo [web-to-openapi] ERROR: node.exe is not on PATH 1>&2
+  echo [web-to-openapi] install Node.js, or add an existing node folder to the 1>&2
+  echo [web-to-openapi] system PATH, then FULLY quit and restart the browser 1>&2
+  call :log "ERROR: node.exe is not on PATH"
   call :log "launcher PATH=%PATH%"
-  call :log "hint: install Node.js LTS then FULLY quit and restart the browser - the native host inherits the browser's env, so a browser started before the install will never see it"
+  call :log "hint: install Node.js (the installer adds itself to PATH), or add your node folder to the system PATH; then quit the browser completely and start it again"
   exit /B 1
 )
 
@@ -93,7 +59,7 @@ if not exist "%NODE_SCRIPT%" (
   exit /B 1
 )
 
-REM No "->" here: the ">" would be re-parsed as a redirection by call.
+REM No "->" in this message: call re-parses its arguments, ">" becomes a redirect.
 call :log "launcher: node source=%NODE_SRC% path=%NODE_EXEC%; starting host"
 "%NODE_EXEC%" "%NODE_SCRIPT%" --config "%SCRIPT_DIR%\config.json" 2>> "%LOG_FILE%"
 exit /B %ERRORLEVEL%
@@ -109,18 +75,25 @@ set "NODE_SRC=%~1"
 exit /B 0
 
 :trypin
-REM Same as :try but explains a bad pin file instead of failing silently
+REM Hand-written pin: validate loudly instead of failing silently. A 0-byte file
+REM must never be executed - Windows answers with a "this app can't run on your PC"
+REM dialog, which looks like a virus warning to the user.
 if "%~1"=="" exit /B 0
-if exist "%~1" (
-  call :try "node-path.txt" "%~1"
-) else (
+if not exist "%~1" (
   call :log "WARN: node-path.txt line does not exist: %~1"
+  exit /B 0
 )
+for %%A in ("%~1") do if %%~zA LEQ 0 (
+  call :log "WARN: node-path.txt points at an empty file, ignored: %~1"
+  exit /B 0
+)
+call :try "node-path.txt" "%~1"
 exit /B 0
 
 :log
 REM %TIME% only: %DATE% expands to a localized day name (non-ASCII on zh-CN Windows)
-REM whose GBK bytes would corrupt this UTF-8 log. Launcher lines sit right next to the
-REM host's own ISO-timestamped startup line, so no date is lost.
+REM whose GBK bytes would corrupt this UTF-8 log. Launcher lines sit next to the
+REM host's own ISO-timestamped line, so no date is lost.
+REM Keep this argument free of | > < & ^ ( - call re-parses it and would execute them.
 echo [%TIME%] [launcher] %~1>> "%LAUNCHER_LOG%"
 exit /B 0
