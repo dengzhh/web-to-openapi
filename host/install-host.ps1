@@ -81,6 +81,24 @@ if ($Uninstall) {
 }
 
 foreach ($k in $keys) {
+    # Report a stale key before overwriting it. Unzipping an update into a NEW folder
+    # and loading the extension without re-running this script is the usual cause of
+    # "Specified native messaging host not found": the key still points at the old
+    # folder's manifest, and that folder is gone. Saying it out loud turns a silent
+    # fix into visible evidence.
+    $prev = $null
+    if (Test-Path "Registry::$k") {
+        $prevKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($k.Substring("HKEY_CURRENT_USER\".Length))
+        if ($prevKey) { $prev = $prevKey.GetValue(""); $prevKey.Close() }
+    }
+    if ($prev -and ($prev -ne $Manifest)) {
+        if (Test-Path $prev) {
+            Write-Host "[fix] key pointed at another copy:" $prev "(exists; repointed to this folder)"
+        } else {
+            Write-Host "[fix] key pointed at a MISSING manifest:" $prev
+            Write-Host "[fix]   ^ this is exactly what causes 'Specified native messaging host not found'"
+        }
+    }
     $sub = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($k.Substring("HKEY_CURRENT_USER\".Length))
     $sub.SetValue("", $Manifest, [Microsoft.Win32.RegistryValueKind]::String)
     $sub.Close()

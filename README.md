@@ -96,6 +96,11 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 完成上面两步后，**以后每次打开该浏览器就会自动可用**，无需重复操作。
 如果浏览器提示 host 未连接，重跑第 1 步即可。
 
+> **更新到新版本时请注意**：如果新包解压在**另一个目录**，必须重跑一次第 1 步（`install.bat`）。
+> 注册表里存的是 manifest 的**绝对路径**，不重跑就仍然指向旧目录；旧目录一删，浏览器就报
+> `Specified native messaging host not found`（跟 node、PATH 都无关）。直接覆盖同一个目录则不必。
+> 详见 [TROUBLESHOOTING.md](TROUBLESHOOTING.md#提示specified-native-messaging-host-not-found)。
+
 ## 浏览器兼容性：**Edge / Chrome 都支持**
 
 它不是「Edge 专用」——凡是支持 MV3 扩展 + native messaging 的 Chromium 内核浏览器都能用：

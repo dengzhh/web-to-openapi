@@ -83,6 +83,31 @@
   // host not found" / "Native host has exited")。键名字符量必须与 background.js 的
   // STORAGE_KEYS.NATIVE_LAST_ERROR 保持一致; 没有记录就静默跳过。
   // 只展示 10 分钟内的记录, 避免陈旧的断开原因误导排查。
+  // 按错误类型给"该做什么"。历史教训: 这三行曾经是写死的固定文案(永远建议去查 PATH),
+  // 但 "Specified native messaging host not found" 是注册表层面的失败 —— 那种情况
+  // host-launcher.log 里一行都不会有, 让用户去查 PATH 纯属误导。
+  function nativeAdvice(msg) {
+    var m = String(msg || "");
+    if (/native messaging host not found/i.test(m)) {
+      return "\n→ 注册表里没有这个 host(或它指向的 manifest 文件已不存在)。" +
+        "\n  双击 host\\install.bat 重新注册(会把注册表指向当前目录的 manifest)," +
+        "\n  然后完全退出浏览器再打开。";
+    }
+    if (/is forbidden/i.test(m)) {
+      return "\n→ 扩展 ID 与 manifest 的 allowed_origins 不匹配。" +
+        "\n  确认加载的是发布包里的 extension\\ 目录(manifest 自带公钥会锁定 ID)," +
+        "\n  再双击 host\\install.bat 重新注册。";
+    }
+    if (/has exited|was found but failed|not found via/i.test(m)) {
+      return "\n→ 启动器被拉起后立即退出。" +
+        "\n  看 %LOCALAPPDATA%\\webtoopenapi\\logs\\host-launcher.log:" +
+        "\n  写 node.exe is not on PATH = node 不在浏览器进程的 PATH 里。" +
+        "\n  写 no launcher / manifest path = run_host.bat 路径失效, 重跑 install.bat。";
+    }
+    return "\n→ 看 %LOCALAPPDATA%\\webtoopenapi\\logs\\ 下的" +
+      "\n  host-launcher.log(启动器) / host-stderr.log(服务自身)。";
+  }
+
   function showNativeError() {
     if (!chrome || !chrome.storage || !chrome.storage.local) return;
     try {
@@ -92,9 +117,7 @@
         if (e.at && Date.now() - e.at > 600000) return;
         var s = el("status");
         if (s) {
-          s.textContent += "\n\n启动失败原因: " + e.message +
-            "\n日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\host-launcher.log" +
-            "\n日志写 node.exe is not on PATH = PATH 里没有 node, 改完要完全退出浏览器再开";
+          s.textContent += "\n\n启动失败原因: " + e.message + nativeAdvice(e.message);
         }
       });
     } catch (err) { /* ignore */ }

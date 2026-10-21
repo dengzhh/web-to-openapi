@@ -8,6 +8,7 @@
 | 症状 | 先看这里 |
 |---|---|
 | popup 显示「本地服务未运行」 | 下面「常见问题」第一问的三层排查；`host-launcher.log` 有没有新行 |
+| popup 报 `Specified native messaging host not found` | **注册表层面**没注册，或指向已删除的旧目录 → 见[下一节](#提示specified-native-messaging-host-not-found)；跑 `host\install.bat` |
 | `curl` 连不上 `127.0.0.1:8090` | 浏览器没开 / 扩展没加载 / host 没起来（见「运维说明·生命周期」） |
 | cmd 里 `node -v` 正常，但日志说找不到 node | [为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到) |
 | 接口 `400` 且响应体为空 | 中文走了 GET，改 POST（见 [API.md](API.md) 开头） |
@@ -24,10 +25,53 @@
 - **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
 - **日志**（都在 `%LOCALAPPDATA%\webtoopenapi\logs\`）：
   - `host-stderr.log` —— host 自身的运行日志（协议走 stdout，日志只走 stderr + 文件）；
-  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起、node 的命中来源（`node source=`）、失败原因。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起；有 `ERROR: node.exe is not on PATH` = 浏览器进程的 PATH 里没有 node，紧随其后的 `launcher PATH=` 就是启动器当时看到的那条 PATH。
+  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起、node 的命中来源（`node source=`）、失败原因。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起（最常见是注册表问题，见[「Specified native messaging host not found」](#提示specified-native-messaging-host-not-found)）；有 `ERROR: node.exe is not on PATH` = 浏览器进程的 PATH 里没有 node，紧随其后的 `launcher PATH=` 就是启动器当时看到的那条 PATH。
 - **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
 - **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
+
+## 提示「Specified native messaging host not found」
+
+这是**注册表层面**的失败，跟 node、跟 PATH 都无关：浏览器在
+`HKCU\Software\{Microsoft\Edge | Google\Chrome}\NativeMessagingHosts\com.webtoopenapi.host`
+找不到可用的注册项，或者注册项指向的 manifest 文件已经不存在。这种情况下
+`host-launcher.log` 里**一行都不会有**——启动器根本没被拉起，所以别再往 PATH 上找。
+
+> 早期版本的 popup 不管遇到什么错误都会提示「日志写 node.exe is not on PATH」，那是误导
+> （已修，现在按错误类型给对应动作）。
+
+### 最常见成因：换了目录却没重跑安装脚本
+
+注册表里存的是 manifest 的**绝对路径**。更新版本时把新包解压到**另一个目录**、只重新加载了扩展，
+注册表仍然指向上一个目录的 manifest；旧目录一旦删除或改名，浏览器就报这个错。
+
+### 一眼确认
+
+```powershell
+reg query "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\com.webtoopenapi.host" /ve
+```
+
+Chrome 则是 `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.webtoopenapi.host`。三种结果：
+
+| 返回 | 含义 | 该做什么 |
+|---|---|---|
+| 报「系统找不到指定的注册表项」 | 从没注册过，或注册项被删/被安全软件清掉 | 跑 `host\install.bat` |
+| 有值，但指向的目录已不存在 | 就是本节场景（更新到新目录后没重新注册） | 跑 `host\install.bat` |
+| 有值且文件确实存在 | 不是这个错，回到[症状速查](#症状速查)看别的行 | — |
+
+### 修法
+
+双击**当前这份包**里的 `host\install.bat`（别用旧目录里那个），它会：
+
+- 把注册表指向**当前目录**的 manifest；
+- 按扩展 key 重新推导 ID，写入 `allowed_origins`；
+- 若发现旧注册项指向的文件已不存在，打印
+  `[fix] key pointed at a MISSING manifest: ...`，并注明「这正是 not found 的成因」——
+  看到这行就说明诊断命中，自愈已完成。
+
+然后**完全退出浏览器**再打开（任务管理器里不能剩 `msedge` / `chrome` 进程）。
+
+> 简单记法：**换目录 = 重跑一次 `install.bat`**；只是覆盖同一目录的文件则不必。
 
 ## 为什么 cmd 里 node 能跑，浏览器却说找不到
 
@@ -88,7 +132,10 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 
 **Q：popup 显示「本地服务未运行」，重开浏览器也没用？**
 按顺序查三层，每层都有明确判据：
-1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立（扩展没加载/被禁用，或注册表键缺失——重跑 `host/install-host.ps1`）。
+1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立。此时先看 popup 的「启动失败原因」：
+   - 报 `Specified native messaging host not found` → 注册表没注册或指向已删除的旧目录，见[上一节](#提示specified-native-messaging-host-not-found)，跑 `host\install.bat`；
+   - 报 `Access to the specified native messaging host is forbidden` → 扩展 ID 与 `allowed_origins` 不匹配，确认加载的是发布包里的 `extension/`，再跑 `install.bat`；
+   - 什么都报不出来 → 扩展没加载/被禁用，或注册表键缺失，重跑 `host\install-host.ps1`。
 2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe is not on PATH` 和一条 `launcher PATH=` —— 浏览器进程的 PATH 里找不到 node。**为什么 cmd 里 `where node` 能用、浏览器却说没有**，原理、三步自查与四种修法见专节 [为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到)。
    最短修法：让 node 进 PATH（`winget install OpenJS.NodeJS.LTS`，或把已有 node 目录加进系统 PATH），然后**完全退出浏览器**再开；不能动 PATH 的受管机器用 `host\node-path.txt` 兜底。
 3. **popup 里的「启动失败原因」**：探测彻底失败时，popup 会把扩展记录的上一次 native 断开原因直接显示出来（如 `Access to the specified native messaging host is forbidden` = 扩展 ID 与 manifest 的 `allowed_origins` 不匹配——确认加载的是发布包里的 `extension/` 目录，manifest 自带公钥会锁定 ID；`Native host has exited` = 启动器起来了又退出，回到第 2 步看 launcher 日志）。
