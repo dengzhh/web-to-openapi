@@ -14,6 +14,14 @@
 
 > 一句话：**安装一次，之后每次打开浏览器（Edge 或 Chrome）自动可用**；地址和端口在插件设置里改，不用碰命令行。
 
+## 文档导航
+
+| 文档 | 讲什么 | 什么时候看 |
+|---|---|---|
+| **README.md**（本文） | 原理、架构、功能、安装、行为配置、使用示例 | 第一次用；想知道它怎么工作、有哪些能力 |
+| **[API.md](API.md)** | 完整端点清单、每个参数的语义、返回字段、语言代码表、MCP 接入与工具清单 | 已经装好了，要写代码调接口 |
+| **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** | 日志位置、症状速查表、三层排查、`cmd 有 node 但浏览器找不到` 的原理与修法、常见问题 | 装不上、服务起不来、接口报错 |
+
 ## 架构
 
 ```
@@ -29,6 +37,22 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
       ▼
 真实浏览器(Edge 或 Chrome, 已登录对应网站的登录态)
 ```
+
+## 能力一览（当前已封装）
+
+同一个进程里，下面这些能力既能用 REST 调，也能以 MCP 工具形式被模型调用：
+
+| 能力 | 端点 | 拿到什么 |
+|---|---|---|
+| **需要登录的控制台数据** | `GET /api/v1/scnet/{free-credit,token-plan,balance}` | 直接读你在浏览器里已登录的 SCNet 控制台余额，不碰密码、不存 Cookie |
+| **搜索引擎** | `GET\|POST /api/v1/search/{baidu,google}` | 结构化结果（标题 / 链接 / 摘要 / 日期 / 是否广告）+ 完整高级参数（`site:` `intitle:` `filetype:` 时间范围、分页、真实 URL 解析……） |
+| **在线翻译** | `GET\|POST /api/v1/translate` | 54 种语言，附音标、简明释义、双语例句、译法解析 |
+| **任意浏览器操作** | `POST /api/v1/tools/{name}` | 透传 `chrome_navigate` / `chrome_javascript` 等底层工具——临时抓一个页面不必先固化成端点 |
+| **自描述** | `GET /openapi.json` · `GET /docs` | OpenAPI 3.0 规范（可导入 Postman / Apifox）+ 可在线试调的文档页，与代码同源、不会过期 |
+
+> 这套东西的价值在于**复用你已有的登录态**：任何"能在浏览器里手动看到、但没有公开 API"的数据，都能按同一套机制变成接口。新增一个网站 = 在 `host/sites/` 加一个文件，路由 / MCP 工具 / OpenAPI / 文档页四处自动生效（见后文「新增一个网页」）。
+>
+> 完整参数与返回字段见 **[API.md](API.md)**。
 
 ## 目录
 
@@ -46,6 +70,8 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 | `tools/gen-key.mjs` | （可选）生成自己的扩展密钥 + 计算扩展 ID，可一键写回两处配置 |
 | `tools/probe_baidu.py` | SERP 探针：新增搜索引擎时用它先摸清结果页 DOM 结构 |
 | `tools/build-dist.py` | 打包发布 zip（产物不入库） |
+| `API.md` | **接口分册**：端点清单、参数、返回字段、MCP 接入 |
+| `TROUBLESHOOTING.md` | **排障分册**：日志、症状速查、三层排查、常见问题 |
 
 ## 部署（**只需一次**）
 
@@ -53,7 +79,7 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 
    > ⚠️ **最容易踩的坑：cmd 里 `node -v` 能用，不代表浏览器能用。**
    > host 由浏览器拉起，继承的是**浏览器进程**的环境变量，不是你现在这个终端的环境。
-   > 判定与修法见下文「[为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到)」一节。改完 PATH 必须**完全退出浏览器**（任务管理器里不能剩 `msedge` / `chrome` 进程）才会生效。
+   > 判定与修法见 **[TROUBLESHOOTING.md → 为什么 cmd 里 node 能跑，浏览器却说找不到](TROUBLESHOOTING.md#为什么-cmd-里-node-能跑浏览器却说找不到)**。改完 PATH 必须**完全退出浏览器**（任务管理器里不能剩 `msedge` / `chrome` 进程）才会生效。
    - 最简单：**双击 `host\install.bat`** 即可（内部自动 bypass 执行策略跑 ps1）。
    - 或手动执行：
    ```powershell
@@ -185,284 +211,38 @@ Chrome 用户请注意三点：
 
 > 复用页面会带来一个必须防的坑：页面上还留着上一题的译文，只看「拿到了译文」会把**上一题的答案**当成本次结果返回（实测两段等长文本 `…test one.` / `…test two.` 就中招）。所以判定标准是：页面左栏的**源文本与本次请求一致**，且译文区被清空/替换过，才开始接受译文。
 
-## 验证
+## 快速验证与调用示例
+
+装好后先确认服务活着（三步就能看出问题在哪一层）：
 
 ```bash
-curl http://127.0.0.1:8090/health
-curl http://127.0.0.1:8090/api/v1/scnet/free-credit   # 只查免费额度
-curl http://127.0.0.1:8090/api/v1/scnet/token-plan     # 只查 Token Plan
-curl http://127.0.0.1:8090/api/v1/scnet/balance        # 聚合: 两项一起查
+curl http://127.0.0.1:8090/health                      # 服务 + 扩展连通状态
+curl http://127.0.0.1:8090/api/v1/scnet/free-credit    # 示例：读一个需要登录的控制台
+curl http://127.0.0.1:8090/docs                        # 浏览器打开，可视化试调
 ```
 
-## MCP 服务（与 REST 接口一一对应）
+`/health` 打不通 → 看 [TROUBLESHOOTING.md](TROUBLESHOOTING.md)；通了但参数不会用 → 看 [API.md](API.md)。
 
-除 `http://127.0.0.1:8090` 的 REST 接口外，**同一进程同一端口**还提供 MCP 服务（Streamable HTTP transport，端点 `/mcp`），任何支持 MCP 的客户端可直接接入。工具与 REST 端点完全对应，中文查询词直接传（无 URL 编码问题）。
-
-> **REST 还是 MCP？按场景选，不必二选一。** 两者底层是同一份实现：
->
-> - **需求明确、要定时/批量/进流水线 → 用 REST**：确定性执行，可进 cron / CI，0 token，失败可重试，返回结构固定、程序直接消费；
-> - **需求模糊、要让模型自己判断"该调什么、该搜什么词" → 用 MCP**：这时模型的推理开销是必要的。
->
-> 反之，把已知流程也交给模型走 MCP，会额外付出「读工具清单 + 推理选参 + 试错重试」的成本，且是串行等待——**能确定做的事，别花钱让模型去猜。**
-
-### 接入方式一：Streamable HTTP（url 方式）
-
-```json
-{
-  "mcpServers": {
-    "web-to-openapi": { "url": "http://127.0.0.1:8090/mcp" }
-  }
-}
-```
-
-### 接入方式二：stdio（command 方式，Claude Desktop 等）
-
-```json
-{
-  "mcpServers": {
-    "web-to-openapi": {
-      "command": "node",
-      "args": ["C:\\path\\to\\web-to-openapi\\host\\mcp-stdio.js"]
-    }
-  }
-}
-```
-
-`mcp-stdio.js` 是零依赖桥接进程：把客户端按行发来的 JSON-RPC 转发给 `/mcp` 端点，响应原样写回 stdout。**前提：浏览器（Edge 或 Chrome）已启动且扩展在线**（openapi-host 由扩展自动拉起；上游不可达时桥接进程会在 stderr 给出明确提示，不会静默失败）。
-
-### 工具清单
-
-| 工具 | 对应 REST | 说明 |
-|---|---|---|
-| `scnet_free_credit` | `GET /api/v1/scnet/free-credit` | SCNet 免费额度（约 5-10s） |
-| `scnet_token_plan` | `GET /api/v1/scnet/token-plan` | SCNet Token Plan（约 5-10s） |
-| `scnet_balance` | `GET /api/v1/scnet/balance` | 免费额度 + Token Plan 聚合（约 10-20s） |
-| `baidu_search` | `GET\|POST /api/v1/search/baidu` | 百度搜索，完整高级参数 |
-| `google_search` | `GET\|POST /api/v1/search/google` | 谷歌搜索，完整高级参数 |
-| `baidu_search_defaults` | `GET /api/v1/search/baidu/defaults` | 百度三层默认参数 |
-| `google_search_defaults` | `GET /api/v1/search/google/defaults` | 谷歌三层默认参数 |
-| `translate_text` | `GET\|POST /api/v1/translate` | 在线翻译，`engine` 切换引擎（当前百度） |
-| `translate_engines` | `GET /api/v1/translate/engines` | 可用翻译引擎 + 54 种语言代码（含中文名与别名） |
-| `service_health` | `GET /health` | 服务健康状态（监听/扩展连通/运行时长） |
-| `browser_tool` | `POST /api/v1/tools/{name}` | 透传任意 chrome_* 浏览器工具 |
-
-列表参数（site/intitle/inurl/intext/exclude/or）传数组（`["a.com","b.com"]`）或逗号分隔字符串均可；默认参数三层合并逻辑与 REST 完全一致（请求 > 设置页默认 > 内置）。
-
-协议要点：JSON-RPC 2.0 over Streamable HTTP，支持 `initialize` / `tools/list` / `tools/call` / `ping`，notification 返回 202；带 Origin 头的浏览器请求须来自 localhost/127.0.0.1（防 DNS rebinding），curl/stdio 桥接不带头照常放行。
-
-## API 一览
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/health` | 存活探针（含扩展连接状态、运行时长、服务名 `web-to-openapi`） |
-| GET | `/openapi.json` | OpenAPI 3.0 规范（可导入 Postman / Swagger UI） |
-| GET | `/docs` | 文档页（可在线试调） |
-| GET | `/api/v1/scnet/free-credit` | **示例接口**：SCNet 免费额度（实时驱动浏览器（Edge / Chrome）打开控制台提取，约 5-10s） |
-| GET | `/api/v1/scnet/token-plan` | **示例接口**：SCNet Token Plan（实时驱动浏览器（Edge / Chrome）打开控制台提取，约 5-10s） |
-| GET | `/api/v1/scnet/balance` | 聚合接口：免费额度 + Token Plan 一次返回（约 10-20s） |
-| GET | `/api/v1/search/baidu` | **百度搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开百度解析结果（约 5-15s） |
-| POST | `/api/v1/search/baidu` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
-| GET | `/api/v1/search/baidu/defaults` | 查看百度搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
-| GET | `/api/v1/search/google` | **谷歌搜索**：完整高级查询参数（见下文），实时驱动浏览器（Edge / Chrome）打开谷歌解析结果（约 5-15s） |
-| POST | `/api/v1/search/google` | 同上，JSON body 传参——**中文查询词必须用这个**（GET 查询串不允许未编码中文，会 400） |
-| GET | `/api/v1/search/google/defaults` | 查看谷歌搜索默认参数（内置 / 扩展设置页下发 / 最终生效） |
-| GET | `/api/v1/translate` | **在线翻译**：`q` + `from`/`to` + `engine`（统一入口，当前支持百度），首次约 3-5s，之后再调约 2s（复用页面）。`from`/`to` 可选 54 种语言代码，见下文清单 |
-| POST | `/api/v1/translate` | 同上，JSON body 传参——**中文文本推荐用这个** |
-| GET | `/api/v1/translate/engines` | 可用翻译引擎 + 54 种语言代码（`languages[].code/label/aliases`） |
-| GET | `/api/v1/tools` | 可用浏览器操作工具目录 |
-| POST | `/api/v1/tools/{name}` | 透传调用任意浏览器工具（搜索、抓取等新能力的统一入口） |
-
-> 示例接口 `scnet/free-credit`、`scnet/token-plan`、`search/baidu`、`search/google` 只是「用浏览器能力封装一个 Web API」的样板。新增任何 Web 能力（如页面正文提取、表单自动化）都走同一套机制，成熟后会作为预置端点陆续加入。
-
-### 百度搜索：完整高级查询参数
-
-> **中文查询词请用 POST**：HTTP 协议规定请求行只允许 ASCII。`?q=人工智能` 不编码会被 Node 的 HTTP 解析器在协议层直接打回 `400 Bad Request`（空响应体，路由代码都进不去）。两种做法：① GET 参数做 URL 编码（`?q=%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD`）；② **推荐** POST JSON body，中文零编码：
->
-> ```bash
-> curl -s -X POST http://127.0.0.1:8090/api/v1/search/baidu \
->   -H "Content-Type: application/json" \
->   -d '{"q":"人工智能","site":["zhihu.com"],"rn":10,"time":"week"}'
-> ```
->
-> POST 与 GET 参数完全同构；列表参数直接传数组（`site:["a.com","b.com"]`），无需重复键名。
+下面是最常用的三种调用，演示「网页能力 → HTTP 接口」的样子：
 
 ```bash
-# 基础 + 高级操作符(可直接写在 q 里)
-curl -s "http://127.0.0.1:8090/api/v1/search/baidu?q=transformer%20site:github.com%20intitle:attention%20filetype:pdf%20-广告"
+# 1) 搜索：中文必须走 POST（GET 查询串不允许未编码中文）
+curl -s -X POST http://127.0.0.1:8090/api/v1/search/baidu \
+  -H "Content-Type: application/json" \
+  -d '{"q":"人工智能","site":["zhihu.com"],"rn":10,"time":"week"}'
 
-# 结构化参数(等价效果, 站点/排除词可重复或逗号分隔)
-curl -s "http://127.0.0.1:8090/api/v1/search/baidu?q=transformer&site=github.com,python.org&intitle=attention&filetype=pdf&exclude=广告,招聘&exact=attention%20is%20all%20you%20need"
-
-# 分页 / 时间范围 / 解析真实 URL
-curl -s "http://127.0.0.1:8090/api/v1/search/baidu?q=AI&rn=20&page=2&time=week&resolve_urls=true"
-```
-
-| 参数 | 说明 |
-|---|---|
-| `q` | 基础查询词，可含高级操作符：`site:` `intitle:` `inurl:` `filetype:` `-排除词` `"精确短语"` |
-| `site` | 限定站点（可重复 `&site=a&site=b` 或逗号分隔）→ `site:xxx` |
-| `intitle` | 标题必须包含 → `intitle:xxx` |
-| `inurl` | URL 必须包含 → `inurl:xxx` |
-| `filetype` | 文件类型：`pdf` / `doc` / `xls` / `ppt` / `rtf` |
-| `exact` | 精确短语 → `"xxx"` |
-| `exclude` | 排除词（可重复/逗号分隔）→ `-xxx` |
-| `rn` | 每页条数：`10` / `20` / `30` / `40` / `50` / `100` |
-| `page` | 页码（1 起，内部换算 `pn` 偏移） |
-| `time` | 时间范围：`day` / `week` / `month` / `year`（内部换算百度 `gpc` 时间过滤参数） |
-| `resolve_urls` | `true` 时把百度跳转链接解析为真实 URL（302，约 90ms/条，并发 8；失败保留原链接） |
-
-返回字段：`query`（最终生效的查询词）/ `page` / `rn` / `time` / `total`（百度找到的相关结果数，best-effort）/ `count` / `items[]`，每项含 `title` / `url`（百度跳转链接）/ `real_url`（resolve_urls=true 时）/ `abstract` / `date`（如「2024年3月22日」「3天前」）/ `is_ad`（是否推广）。
-
-### 谷歌搜索：完整高级查询参数
-
-> **中文查询词请用 POST**（同百度）：`?q=人工智能` 不编码会被 HTTP 协议层直接打回 `400 Bad Request`。
->
-> ```bash
-> curl -s -X POST http://127.0.0.1:8090/api/v1/search/google \
->   -H "Content-Type: application/json" \
->   -d '{"q":"人工智能","site":["github.com"],"num":10,"time":"week"}'
-> ```
-
-```bash
-# 基础 + 高级操作符(可直接写在 q 里)
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=transformer%20site:github.com%20intitle:attention%20filetype:pdf%20-广告"
-
-# 结构化参数(等价效果, 站点/排除词/或关键词可重复或逗号分隔)
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=transformer&site=github.com,python.org&intitle=attention&or=BERT,GPT&exclude=ads&exact=attention%20is%20all%20you%20need"
-
-# 分页 / 时间范围 / 自定义日期区间 / 解析真实 URL
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=AI&num=20&page=2&time=week&resolve_urls=true"
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=AI&after=2026-01-01&before=2026-06-30"
-
-# 语言/地区/安全搜索/垂直搜索/关闭纠错/逐字匹配
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=人工智能&hl=zh-CN&gl=cn&lr=lang_zh-CN&safe=off&nfpr=true&verbatim=true"
-curl -s "http://127.0.0.1:8090/api/v1/search/google?q=AI&tbm=nws"   # 新闻垂直
-```
-
-| 参数 | 说明 |
-|---|---|
-| `q` | 基础查询词，可含高级操作符：`site:` `intitle:` `inurl:` `intext:` `filetype:` `link:` `-排除词` `"精确短语"` `OR` |
-| `site` | 限定站点（可重复 `&site=a&site=b` 或逗号分隔）→ `site:xxx` |
-| `intitle` | 标题必须包含 → `intitle:xxx` |
-| `inurl` | URL 必须包含 → `inurl:xxx` |
-| `intext` | 正文必须包含 → `intext:xxx` |
-| `filetype` | 文件类型：`pdf` / `doc` / `docx` / `xls` / `xlsx` / `ppt` / `pptx` / `txt` / `rtf` |
-| `exact` | 精确短语 → `"xxx"` |
-| `exclude` | 排除词（可重复/逗号分隔）→ `-xxx` |
-| `or` | 或关键词（可重复/逗号分隔）→ `(a OR b)` |
-| `link` | 链接到某 URL 的网页 → `link:xxx` |
-| `num` | 每页条数：`10` / `20` / `30` / `50` / `100` |
-| `page` | 页码（1 起，内部换算 `start` 偏移） |
-| `start` | 起始偏移（显式提供时**覆盖** page） |
-| `time` | 时间范围：`hour` / `day` / `week` / `month` / `year`（内部换算谷歌 `tbs=qdr:h/d/w/m/y`） |
-| `after` / `before` | 自定义日期区间 `YYYY-MM-DD`（内部换算 `tbs=cdr:1,cd_min:M/D/YYYY,cd_max:...`） |
-| `hl` | 界面语言（默认 `zh-CN`，如 `en`） |
-| `gl` | 国家/地区代码（如 `cn` / `us` / `jp`） |
-| `lr` | 限定语言（如 `lang_zh-CN`） |
-| `cr` | 限定国家（如 `countryCN`） |
-| `safe` | 安全搜索：`off` / `active` |
-| `tbm` | 垂直搜索：空=网页 / `nws`=新闻 / `isch`=图片 / `vid`=视频（结构化提取以网页/新闻为准） |
-| `nfpr` | `true` 关闭拼写纠错（`nfpr=1`） |
-| `verbatim` | `true` 逐字匹配，不做同义词扩展（`tbs=li:1`） |
-| `resolve_urls` | `true` 时把 `/url?q=` 与 `/aclk?url=` 等谷歌跳转链接解析为真实 URL（先本地解参数，再 302 兜底；并发 8，失败保留原链接） |
-
-返回字段：`query`（最终生效的查询词）/ `page` / `num` / `start` / `time` / `after` / `before` / `total`（谷歌结果数，best-effort）/ `count` / `page_loaded`（SERP 是否完整加载）/ `no_result`（true = 谷歌明确返回零结果页，与「页面没加载完」区分）/ `items[]`，每项含 `title` / `url` / `real_url`（resolve_urls=true 时）/ `abstract` / `date`（如「2024年3月22日」「Jan 1, 2024」「3天前」）/ `is_ad`（是否推广）。
-
-> 注意：谷歌在部分网络环境下会返回 consent 同意页或反爬验证页（`/sorry/`），此时接口返回明确错误提示，按提示在浏览器（Edge / Chrome）里手动完成一次搜索/验证后重试即可。
-
-### 在线翻译：统一入口 + 引擎表
-
-翻译没有做成「一个站点一个端点」，而是**一个入口 + `engine` 参数**——调用方不用记多个路径，加引擎也不影响已有调用：
-
-```bash
-# GET（英文/短文本）
-curl -s "http://127.0.0.1:8090/api/v1/translate?q=hello%20world&from=en&to=zh"
-
-# POST（中文推荐：body 里的中文不用 URL 编码）
+# 2) 翻译：一个入口 + engine 切换，中文同样走 POST
 curl -s -X POST http://127.0.0.1:8090/api/v1/translate \
   -H "Content-Type: application/json" \
-  -d '{"q":"今天天气很好，我们去公园散步吧。","from":"zh","to":"en","engine":"baidu"}'
+  -d '{"q":"今天天气很好，我们去公园散步吧。","from":"zh","to":"en"}'
 
-# 查看可用引擎与语言代码
-curl -s http://127.0.0.1:8090/api/v1/translate/engines
+# 3) 临时抓一个页面，不必固化成端点（透传浏览器工具）
+curl -s -X POST http://127.0.0.1:8090/api/v1/tools/chrome_navigate \
+  -H "Content-Type: application/json" \
+  -d '{"args":{"url":"https://www.baidu.com/s?wd=AI","newWindow":true}}'
 ```
 
-参数：`q`（必填，上限 5000 字符）· `from`（默认 `auto`，`auto` 只在 `from` 可用）· `to`（默认 `zh`）· `engine`（默认 `baidu`）· `detail`（是否附带词典/例句，默认 `true`）。
-
-#### `from` / `to` 的语言代码（54 种）
-
-每个代码都在百度翻译网页版实测出过对应语种的译文（2026-10），下面括号里是同样接受的 ISO 别名：
-
-- **中文系**：`zh` 中文简体（`zh-CN` / `chs` / `cn`）· `cht` 中文繁体（`zh-TW` / `zh-HK`）· `yue` 粤语 · `wyw` 文言文
-- **常用语种**：`en` 英语 · `jp` 日语（`ja`）· `kor` 韩语（`ko`）· `fra` 法语（`fr`）· `spa` 西班牙语（`es`）· `de` 德语 · `ru` 俄语 · `it` 意大利语 · `pt` 葡萄牙语 · `ara` 阿拉伯语（`ar`）· `th` 泰语 · `vie` 越南语（`vi`）· `nl` 荷兰语 · `pl` 波兰语 · `tr` 土耳其语
-- **欧洲其他**：`el` 希腊语 · `fin` 芬兰语（`fi`）· `dan` 丹麦语（`da`）· `swe` 瑞典语（`sv`）· `cs` 捷克语 · `hu` 匈牙利语 · `rom` 罗马尼亚语（`ro`）· `bul` 保加利亚语（`bg`）· `ukr` 乌克兰语（`uk`）· `srp` 塞尔维亚语（`sr`）· `hrv` 克罗地亚语（`hr`）· `sk` 斯洛伐克语 · `slo` 斯洛文尼亚语（`sl`）· `lit` 立陶宛语（`lt`）· `lav` 拉脱维亚语（`lv`）· `est` 爱沙尼亚语（`et`）· `nor` 挪威语（`no`）· `ice` 冰岛语（`is`）· `geo` 格鲁吉亚语（`ka`）· `arm` 亚美尼亚语（`hy`）· `aze` 阿塞拜疆语（`az`）
-- **亚洲其他**：`heb` 希伯来语（`he`）· `hi` 印地语 · `id` 印尼语 · `may` 马来语（`ms`）· `bur` 缅甸语（`my`）· `fil` 菲律宾语（`tl`）· `lao` 老挝语（`lo`）· `nep` 尼泊尔语（`ne`）· `urd` 乌尔都语（`ur`）· `per` 波斯语（`fa`）· `tam` 泰米尔语（`ta`）· `tel` 泰卢固语（`te`）· `mal` 马拉雅拉姆语（`ml`）· `ben` 孟加拉语（`bn`）
-
-机器可读的完整清单（含每项的 `label` 与 `aliases`）：`GET /api/v1/translate/engines` 的 `languages` 字段，文档页 `/docs` 也有同源折叠表格。
-
-> **未收录的代码直接返回 `400`，不做透传。** 原因是实测发现百度对不认识的目标语言**不报错，而是静默回退成中文**——`to=uk` / `tl` / `km` / `lo` / `ne` / `ur` / `fa` / `mong` / `kaz` / `uzb` 全部返回 `200`，但 `to_label` 变成「中文(简体)」、译文是中文。静默给错语种比报错危险得多（调用方会以为翻译成功了），所以这里宁可 400。其中 `uk` / `tl` / `lo` / `ne` / `ur` / `fa` 这类 ISO 简写已映射到正确代码，`km`（高棉语）、`mong`、`kaz`、`uzb` 网页版确实不支持。
->
-> 另有一层运行时兜底：返回时会核对页面实际识别的目标语言，若与请求的代码不符，响应里会多出 `"to_label_mismatch": true`（正常情况下不会出现）。
-
-返回：`translation`（整段译文）· `segments`（按段落/行拆分，多段文本有用）· `from` / `to`（归一化后的代码，`zh-TW` 会回显为 `cht`）· `from_label` / `to_label`（页面实际识别的语言，可用来核对方向）· `reused`（本次是否复用了已打开的页面）· `cached`（是否命中上一次相同请求的结果）· `elapsed_ms`。
-
-**学习资料**（`detail=true` 默认附带，`detail=false` 只回主译文；解析失败只是为空，不影响主流程）：
-
-| 字段 | 内容 | 出现的查询类型 |
-|---|---|---|
-| `dict` | 重点词汇 `[{word, defs}]`（句子里的关键词及释义） | 整句 |
-| `details_text` | 词典卡原文（best-effort，给想自己解析的人） | 整句 / 单词 |
-| `phonetic` | 英式 / 美式音标 `{uk, us}` | 单词 / 短语 |
-| `simple_def` | 简明释义（词性 + 中文释义，如 `n. 恢复力；弹力；适应力`） | 单词 / 短语 |
-| `examples` | 双语例句 `[{no, src, dst}]`，通常 5 条，源语句 + 译文成对 | 单词 / 短语 |
-| `explanation` | AI 译法解析长文（同一词多种译法的适用语境对比） | 单词 / 短语 |
-
-实测（2026-10，百度翻译）：英→中、中→英、`auto` 自动检测、多段文本、`detail=false`、ISO 别名（`ja` / `ko` / `fr` / `es` / `zh-TW`）均通过；54 种语言逐一跑过「Hello, good morning.」→ 目标语，全部返回对应语种译文。单词查询（`machine learning` / `resilience` / `学习`）的音标、简明释义、5 条双语例句、译法解析均实测拿到。页面结构要点：译文容器是稳定 id `#trans-selection`（不是混淆类名），所以比搜索类站点抗改版；词典卡以文本「简明释义」定位，完成标记有「以上为AI翻译结果 / 以上为机器翻译结果」两种文案（同一单词查询两种都出现过），都认。
-
-> 页面上「翻译详解 / 关键术语解释 / 专家审校」按钮点击后会弹**登录框**，未登录拿不到内容，API 不碰这三项（也不替用户登录）。
-
-**速度**（同一台机器、连续调用实测）：
-
-| 场景 | 耗时 | 说明 |
-|---|---|---|
-| 首次调用 | **3.5-5.2 秒** | 要加载百度翻译整站（JS / CSS / 首屏） |
-| `keep_tab_ms` 内的后续调用 | **2.0-2.8 秒** | 只改页面里的查询串，不重载文档（`reused: true`） |
-| 与上一次完全相同的请求 | **4-5 毫秒** | 直接返回上次结果（`cached: true`） |
-
-省下来的基本就是页面加载那 1.5 秒；剩下的 2 秒是百度 AI 翻译自己的生成时间（流式输出，实测首字 ~1.8 秒、结束 ~2.3 秒），换机换网都在这个量级。顺带测过页面上的「机翻 · 通用领域」档位，只比 AI 档快 0.4 秒，不值得为它增加一套切换逻辑。
-
-**为什么只接了百度**：翻译站的官方 API 普遍按字符计费，而免费网页版基本不限量，这才是「把网页变成 API」的收益所在。百度网页版免登录、URL 带参直达、DOM 结构清楚，是投入产出比最高的一个。其它站点实测结论：Google 翻译页面在国内网络下加载不出来（但它的免费 HTTP 端点可直连，不需要浏览器）；DeepL 页面能开，但 `#en/zh/文本` 带参已失效，需要注入文本 + 先切目标语言；Reverso / Linguee 有 Cloudflare 人机验证，自动化不可用；火山翻译官网已 404。
-
-**加一个引擎**：在 `host/sites/translate.js` 的 `ENGINES` 里加一项（`buildUrl` + `translate`），路由 / MCP 工具 / `openapi.json` / 文档页全部自动沿用。需要「注入文本 + 点按钮」的引擎，用 `chrome_fill_or_select` / `chrome_click_element` 组合即可，结构不用改。
-
-### 在插件设置页配置默认查询参数
-
-扩展设置页（`edge://extensions` 或 `chrome://extensions` → 本扩展「详细信息」→「扩展选项」）提供「百度搜索默认参数」与「Google 搜索默认参数」两张卡片：
-默认站点 / 标题含 / URL 含 / 正文含（Google）/ 排除词 / 精确短语 / 或关键词（Google）/ 链接页（Google）/ 文件类型 / 每页条数 / 时间范围 / 安全搜索、界面语言、国家地区、限定语言/国家、垂直搜索、起止日期（Google）/ 是否解析真实 URL / 关闭纠错、逐字匹配（Google）。
-
-- 分别保存在扩展存储（`webtoopenapi_baidu_defaults` / `webtoopenapi_google_defaults`），经 native messaging 下发给 host 并持久化到 `%LOCALAPPDATA%\webtoopenapi\baidu-defaults.json` / `google-defaults.json`（host 重启不丢失，扩展重连也会自动同步）。
-- **合并顺序：请求显式参数 > 设置页默认 > 内置默认**（百度内置 `rn=50, page=1, 不限时间, 不解析`；谷歌内置 `num=20, page=1, hl=zh-CN, 不限时间, 不解析`）。列表类参数（site/intitle/inurl/exclude/or）请求出现时**整体替换**默认，不叠加。
-- `GET /api/v1/search/baidu/defaults`、`GET /api/v1/search/google/defaults` 可随时查看三层默认值。
-
-免费额度返回示例（`/api/v1/scnet/free-credit`）：
-
-```json
-{
-  "source": "scnet console via web-to-openapi",
-  "fetched_at": "2026-10-16T14:32:19.702Z",
-  "free_credit": { "remaining": 9999916, "total": 10000000, "used": 84, "remaining_percent": 100, "model": "GLM-5.3-Flash", "days_left": 28 }
-}
-```
-
-Token Plan 返回示例（`/api/v1/scnet/token-plan`）：
-
-```json
-{
-  "source": "scnet console via web-to-openapi",
-  "fetched_at": "2026-10-16T14:32:19.702Z",
-  "token_plan": { "plan_monthly_credits": 30000, "total_credits": 30000, "remaining_credits": 26083.2, "remaining_percent": 87, "used_credits": 3916.8, "used_percent": 13, "days_left": 30 }
-}
-```
+> 完整的端点清单、每个参数的语义、返回字段、54 种语言代码、MCP 接入方式，都在 **[API.md](API.md)**；服务还自带 `GET /openapi.json`（OpenAPI 3.0，可直接导入 Postman / Apifox）与 `GET /docs`（在线试调页），文档与代码同源，不会过期。
 
 ## 扩展密钥（可选）
 
@@ -557,95 +337,6 @@ module.exports = {
 >   -H "Content-Type: application/json" \
 >   -d '{"args":{"tabId":123,"code":"return document.body.innerText"}}'
 > ```
-
-## 运维说明
-
-- **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
-- **日志**（都在 `%LOCALAPPDATA%\webtoopenapi\logs\`）：
-  - `host-stderr.log` —— host 自身的运行日志（协议走 stdout，日志只走 stderr + 文件）；
-  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起、node 的命中来源（`node source=`）、失败原因。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起；有 `ERROR: node.exe is not on PATH` = 浏览器进程的 PATH 里没有 node，紧随其后的 `launcher PATH=` 就是启动器当时看到的那条 PATH。
-- **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
-- **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
-- **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
-
-## 为什么 cmd 里 node 能跑，浏览器却说找不到
-
-这是 Windows 上「本地服务未运行」最常见的原因，也是本项目**唯一一个纯环境问题**——不是 bug，是环境变量的传递规则。
-
-### 原理：没有「给 host 设环境变量」的地方
-
-native messaging manifest 只有 5 个字段：`name` / `description` / `path` / `type` / `allowed_origins`（Chrome 官方文档口径），**没有 `env` 字段**。host 是浏览器用 `CreateProcess` 拉起的普通子进程，环境块直接复制浏览器进程那一份：
-
-```
-浏览器进程的环境块 ──CreateProcess──> cmd.exe 执行 run_host.bat ──> node.exe
-       ↑
-  这份快照是浏览器「启动那一刻」从父进程（通常 explorer.exe）继承的
-```
-
-于是同一台机器上存在**两份互不相干的 PATH**：
-
-| 你在哪看 | 这份 PATH 来自 | 典型现象 |
-|---|---|---|
-| 自己开的 cmd / PowerShell | 终端进程启动时读取 | `where node` 有结果 → 以为万事大吉 |
-| 浏览器拉起的 host | **浏览器进程**的环境块 | 日志写 `ERROR: node.exe is not on PATH` |
-
-关键点：**已经在运行的进程不会因为 `setx` 而更新环境**。`setx` 只改注册表里的持久值，正在跑的 explorer、正在跑的浏览器，各自还握着启动那一刻的那份副本；新进程继承的永远是**父进程当时那份**。所以「改了系统环境变量却没生效」是常态，不是异常。
-
-### 三步自查（30 秒）
-
-1. 看自己这份：`cmd /c "where node & echo %PATH%"` —— 有 node 就说明这份是好的；
-2. 看浏览器那份：`%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 里的 `launcher PATH=` 一行，就是**浏览器当时传给启动器的真实环境**，直接跟第 1 步的结果逐段对比；
-3. 日志若是 `ERROR: node.exe is not on PATH`，把紧随其后的 `searched: ...` 与 `launcher PATH=` 贴出来，路径差异一眼可见。
-
-### 四种修法（按推荐度）
-
-| 修法 | 命令 / 动作 | 说明 |
-|---|---|---|
-| 一、装 Node.js LTS | `winget install OpenJS.NodeJS.LTS` | 安装器自己写系统 PATH，之后**完全退出浏览器**再开 |
-| 二、把已有 node 目录加进系统 PATH | 系统属性 → 环境变量 → 系统变量 `Path` → 新增 node.exe 所在目录 | 不重复安装，复用现有的那一份 |
-| 三、从终端带着新环境启动浏览器 | 先退出所有浏览器进程，再 `set PATH=C:\path\to\node;%PATH% && start "" msedge` | 不落盘、只对本次进程树有效；**已有实例在跑时 `start` 只在旧实例开新窗口**，等于无效 |
-| 四、`node-path.txt` 覆盖（兜底） | 在 `host\` 下新建该文件，一行写 node.exe 全路径、不带引号 | 唯一不依赖环境传递的方式，适合不能动 PATH 的受管机器 |
-
-启动器只认三处，按顺序：`node-path.txt` → `WEBTOOPENAPI_NODE` → PATH（再用 `where node.exe` 复核，防 PATH 里的引号写法漏掉）。**不做任何目录扫描**：私有目录布局随时会变，写死一堆路径只会长期失效。命中来源记在日志的 `node source=`。
-
-### 「重启机器能好」只在一种情况下成立
-
-| 你的情况 | 重启机器 | 真正该做的 |
-|---|---|---|
-| cmd 里**也没有** node | ❌ 无用，重启不会凭空生出一个 node.exe | 装 Node.js，或把 node 目录加进 PATH |
-| cmd 里 `node -v` **正常** | ✅ 有效，因为重启让 explorer 全新读一次环境 | 但更省事的是**完全退出浏览器**再开（等效，几十秒） |
-
-「完全退出」指：关闭所有窗口还不够，要在任务管理器里结束所有 `msedge.exe` / `chrome.exe` 残留进程。只关窗口的话，后台进程还握着旧环境，新窗口复用同一进程 = PATH 依旧是旧的。
-
-## 常见问题
-
-**Q：接口返回 400 Bad Request，响应体是空的？**
-GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行只允许 ASCII，Node 的解析器会在协议层直接拒绝。改用 POST + JSON body（中文零编码），或对参数做 URL 编码。
-
-**Q：浏览器提示 host 未连接？**
-重跑一次 `host/install.bat`（脚本会自愈路径与扩展 ID），然后在 `edge://extensions`（Chrome 则 `chrome://extensions`）里重新加载扩展。
-
-**Q：popup 显示「本地服务未运行」，重开浏览器也没用？**
-按顺序查三层，每层都有明确判据：
-1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立（扩展没加载/被禁用，或注册表键缺失——重跑 `host/install-host.ps1`）。
-2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe is not on PATH` 和一条 `launcher PATH=` —— 浏览器进程的 PATH 里找不到 node。**为什么 cmd 里 `where node` 能用、浏览器却说没有**，原理、三步自查与四种修法见专节 [为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到)。
-   最短修法：让 node 进 PATH（`winget install OpenJS.NodeJS.LTS`，或把已有 node 目录加进系统 PATH），然后**完全退出浏览器**再开；不能动 PATH 的受管机器用 `host\node-path.txt` 兜底。
-3. **popup 里的「启动失败原因」**：探测彻底失败时，popup 会把扩展记录的上一次 native 断开原因直接显示出来（如 `Access to the specified native messaging host is forbidden` = 扩展 ID 与 manifest 的 `allowed_origins` 不匹配——确认加载的是发布包里的 `extension/` 目录，manifest 自带公钥会锁定 ID；`Native host has exited` = 启动器起来了又退出，回到第 2 步看 launcher 日志）。
-
-**Q：能不能在 Chrome 上用？我只看到文档里写 Edge。**
-能，Edge 只是文档里的默认示例。同一份 `extension/` 目录在 Chrome 的 `chrome://extensions` 里直接加载即可，安装脚本已经把 Chrome 的注册键一起写好了；扩展 ID 也是同一个。详见「浏览器兼容性」一节。
-
-**Q：Edge 和 Chrome 同时装会怎样？**
-两者会争抢同一个端口，只有一个 host 能绑定成功，请求由哪个浏览器执行变得不确定。建议只在一边加载，或给其中一个换端口。
-
-**Q：搜索接口返回 0 条？**
-先看返回里的 `page_loaded` 与 `no_result`：`no_result: true` 表示搜索引擎确实返回了零结果页（不是失败）；两者都为 false 则可能是页面没加载完或触发了验证页，在浏览器里手动访问一次该站点再重试。
-
-**Q：每次调用都会弹出浏览器窗口吗？**
-不会。默认 `page_mode=auto`（等同 `tab`）会在当前窗口开一个**后台标签**，不新建窗口、不抢焦点，提取完立即关闭。只有在遇到登录/验证码时，才会主动把那个标签切到前台让你处理。想彻底避免任何视觉变化就保持 `tab`；想更快可以设 `window-front`，代价是每次都会弹窗。
-
-**Q：为什么要 20 秒，明明浏览器里一两秒就出结果？**
-因为浏览器窗口被最小化或被别的窗口完全遮挡时，Chromium 会冻结不可见标签的渲染与网络。把浏览器窗口露出来（不需要操作）就会回到正常速度。这是浏览器行为，任何扩展方案都绕不过去。
 
 ## 许可证与署名
 
