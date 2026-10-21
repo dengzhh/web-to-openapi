@@ -814,6 +814,7 @@ var __yieldStar = (value) => {
     SERVER_STATUS: "serverStatus",
     NATIVE_SERVER_PORT: "nativeServerPort",
     NATIVE_AUTO_CONNECT_ENABLED: "nativeAutoConnectEnabled",
+    NATIVE_LAST_ERROR: "nativeLastError",
     SEMANTIC_MODEL: "selectedModel",
     USER_PREFERENCES: "userPreferences",
     VECTOR_INDEX: "vectorIndex",
@@ -44148,6 +44149,16 @@ ${sanitizedStack}` : message2
       nativePort.onDisconnect.addListener(() => {
         console.warn(ERROR_MESSAGES.NATIVE_DISCONNECTED, chrome.runtime.lastError);
         nativePort = null;
+        // 把断开原因落盘: connectNative 失败(host 没注册/ID 不匹配/launcher 起不来)只在这里
+        // 暴露, popup 健康探测失败时读它展示, 否则用户只看到一句"本地服务未运行"无从下手
+        const disconnectError = chrome.runtime.lastError && chrome.runtime.lastError.message;
+        if (disconnectError) {
+          try {
+            chrome.storage.local.set({
+              [STORAGE_KEYS.NATIVE_LAST_ERROR]: { message: disconnectError, at: Date.now() }
+            });
+          } catch (e) { /* ignore */ }
+        }
         void markServerStopped("native_port_disconnected");
         if (manualDisconnect) {
           manualDisconnect = false;

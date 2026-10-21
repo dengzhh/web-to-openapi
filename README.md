@@ -554,7 +554,9 @@ module.exports = {
 ## 运维说明
 
 - **生命周期**：host 由浏览器扩展拉起；浏览器退出 → host 退出 → HTTP 不可用（浏览器自动化的固有属性，与 chrome-mcp-server 一致）。
-- **日志**：`%LOCALAPPDATA%\webtoopenapi\logs\openapi-host.log`（协议走 stdout，日志只走 stderr + 文件）。
+- **日志**（都在 `%LOCALAPPDATA%\webtoopenapi\logs\`）：
+  - `host-stderr.log` —— host 自身的运行日志（协议走 stdout，日志只走 stderr + 文件）；
+  - `host-launcher.log` —— 启动器 `run_host.bat` 的流水：每次被浏览器拉起的记录、node 发现结果、失败原因（node 找不到时会附上启动器当时看到的 PATH）。**排「服务起不来」先看这个文件**：没有新行 = 浏览器根本没尝试拉起；有 `ERROR: node.exe not found` = 浏览器进程的环境里没有 node（装 Node.js 后**完全重启浏览器**；或设 `WEBTOOPENAPI_NODE` 指向 node.exe）。
 - **升级风险**：本服务不修改任何第三方包；`extension/` 是独立副本，原扩展与 bridge 升级都不受影响。
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
 - **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
@@ -566,6 +568,12 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 
 **Q：浏览器提示 host 未连接？**
 重跑一次 `host/install.bat`（脚本会自愈路径与扩展 ID），然后在 `edge://extensions`（Chrome 则 `chrome://extensions`）里重新加载扩展。
+
+**Q：popup 显示「本地服务未运行」，重开浏览器也没用？**
+按顺序查三层，每层都有明确判据：
+1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立（扩展没加载/被禁用，或注册表键缺失——重跑 `host/install-host.ps1`）。
+2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe not found` 和一条 PATH —— 说明浏览器进程的环境里找不到 node。本机 cmd 里 `where node` 能用不代表浏览器能用（浏览器的环境是它启动时快照的）。修复：安装 Node.js LTS（启动器有 `C:\Program Files\nodejs` 等固定回退位，不依赖 PATH），然后**完全退出浏览器再重开**（含任务管理器里的后台进程）；或设环境变量 `WEBTOOPENAPI_NODE` 为 node.exe 全路径后重启浏览器。
+3. **popup 里的「启动失败原因」**：探测彻底失败时，popup 会把扩展记录的上一次 native 断开原因直接显示出来（如 `Access to the specified native messaging host is forbidden` = 扩展 ID 与 manifest 的 `allowed_origins` 不匹配——确认加载的是发布包里的 `extension/` 目录，manifest 自带公钥会锁定 ID；`Native host has exited` = 启动器起来了又退出，回到第 2 步看 launcher 日志）。
 
 **Q：能不能在 Chrome 上用？我只看到文档里写 Edge。**
 能，Edge 只是文档里的默认示例。同一份 `extension/` 目录在 Chrome 的 `chrome://extensions` 里直接加载即可，安装脚本已经把 Chrome 的注册键一起写好了；扩展 ID 也是同一个。详见「浏览器兼容性」一节。

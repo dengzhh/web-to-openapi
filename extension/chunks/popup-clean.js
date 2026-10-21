@@ -43,6 +43,9 @@
       .then(function (r) { return r.json(); })
       .then(function (d) {
         clearTimeout(timer);
+        if (chrome && chrome.storage && chrome.storage.local) {
+          try { chrome.storage.local.remove("nativeLastError"); } catch (e) { /* ignore */ }
+        }
         var addr = d.listen || endpoint();
         var ext = d.extension_connected ? "扩展已连接" : "扩展未连接";
         setStatus(addr + "\n" + ext + " · 已运行 " + (d.uptime_s || 0) + "s", "ok");
@@ -63,9 +66,30 @@
         setTimeout(function () { retryProbe(attempt + 1); }, 400);
       } else {
         setStatus("本地服务未运行\n(确认 Edge 已打开且已加载本扩展)", "bad");
+        showNativeError();
         bindDocs();
       }
     });
+  }
+
+  // 探测彻底失败时展示后台记录的 native 断开原因(如 "Specified native messaging
+  // host not found" / "Native host has exited")。键名字符量必须与 background.js 的
+  // STORAGE_KEYS.NATIVE_LAST_ERROR 保持一致; 没有记录就静默跳过。
+  // 只展示 10 分钟内的记录, 避免陈旧的断开原因误导排查。
+  function showNativeError() {
+    if (!chrome || !chrome.storage || !chrome.storage.local) return;
+    try {
+      chrome.storage.local.get("nativeLastError", function (cfg) {
+        var e = cfg && cfg.nativeLastError;
+        if (!e || !e.message) return;
+        if (e.at && Date.now() - e.at > 600000) return;
+        var s = el("status");
+        if (s) {
+          s.textContent += "\n\n启动失败原因: " + e.message +
+            "\n详细日志: %LOCALAPPDATA%\\webtoopenapi\\logs\\host-launcher.log";
+        }
+      });
+    } catch (err) { /* ignore */ }
   }
 
   function init() {

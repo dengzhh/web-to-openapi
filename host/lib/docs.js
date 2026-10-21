@@ -40,7 +40,8 @@ function pageCard() {
 }
 
 function docsHtml() {
-  const base = `http://${CONFIG.host}:${state.httpPort || CONFIG.port}`;
+  const cfg = getCfg();
+  const base = `http://${cfg.host}:${state.httpPort || cfg.port}`;
   const cards = [];
   let noticeInserted = false;
   cards.push(pageCard());
