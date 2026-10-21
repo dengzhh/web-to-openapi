@@ -49,7 +49,11 @@ openapi-host.js ── lib/(基础设施) ── sites/(一个网页一个文件
 
 ## 部署（**只需一次**）
 
-1. **注册 native host**（需要本机装了 Node.js；写入当前用户注册表，无需管理员）
+1. **注册 native host**（需要本机装了 Node.js，且 **node 在 PATH 里**；写入当前用户注册表，无需管理员）
+
+   > ⚠️ **最容易踩的坑：cmd 里 `node -v` 能用，不代表浏览器能用。**
+   > host 由浏览器拉起，继承的是**浏览器进程**的环境变量，不是你现在这个终端的环境。
+   > 判定与修法见下文「[为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到)」一节。改完 PATH 必须**完全退出浏览器**（任务管理器里不能剩 `msedge` / `chrome` 进程）才会生效。
    - 最简单：**双击 `host\install.bat`** 即可（内部自动 bypass 执行策略跑 ps1）。
    - 或手动执行：
    ```powershell
@@ -564,6 +568,55 @@ module.exports = {
 - **已知限制**：依赖下载/文件保存类的工具（`file_operation`）未实现，会明确报错；`chrome_screenshot` 仅存档（当前模型读不了图）。
 - **前提**：浏览器（Edge / Chrome）已加载本扩展；调用具体站点接口（如余额）还需该站点已登录。
 
+## 为什么 cmd 里 node 能跑，浏览器却说找不到
+
+这是 Windows 上「本地服务未运行」最常见的原因，也是本项目**唯一一个纯环境问题**——不是 bug，是环境变量的传递规则。
+
+### 原理：没有「给 host 设环境变量」的地方
+
+native messaging manifest 只有 5 个字段：`name` / `description` / `path` / `type` / `allowed_origins`（Chrome 官方文档口径），**没有 `env` 字段**。host 是浏览器用 `CreateProcess` 拉起的普通子进程，环境块直接复制浏览器进程那一份：
+
+```
+浏览器进程的环境块 ──CreateProcess──> cmd.exe 执行 run_host.bat ──> node.exe
+       ↑
+  这份快照是浏览器「启动那一刻」从父进程（通常 explorer.exe）继承的
+```
+
+于是同一台机器上存在**两份互不相干的 PATH**：
+
+| 你在哪看 | 这份 PATH 来自 | 典型现象 |
+|---|---|---|
+| 自己开的 cmd / PowerShell | 终端进程启动时读取 | `where node` 有结果 → 以为万事大吉 |
+| 浏览器拉起的 host | **浏览器进程**的环境块 | 日志写 `ERROR: node.exe is not on PATH` |
+
+关键点：**已经在运行的进程不会因为 `setx` 而更新环境**。`setx` 只改注册表里的持久值，正在跑的 explorer、正在跑的浏览器，各自还握着启动那一刻的那份副本；新进程继承的永远是**父进程当时那份**。所以「改了系统环境变量却没生效」是常态，不是异常。
+
+### 三步自查（30 秒）
+
+1. 看自己这份：`cmd /c "where node & echo %PATH%"` —— 有 node 就说明这份是好的；
+2. 看浏览器那份：`%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 里的 `launcher PATH=` 一行，就是**浏览器当时传给启动器的真实环境**，直接跟第 1 步的结果逐段对比；
+3. 日志若是 `ERROR: node.exe is not on PATH`，把紧随其后的 `searched: ...` 与 `launcher PATH=` 贴出来，路径差异一眼可见。
+
+### 四种修法（按推荐度）
+
+| 修法 | 命令 / 动作 | 说明 |
+|---|---|---|
+| 一、装 Node.js LTS | `winget install OpenJS.NodeJS.LTS` | 安装器自己写系统 PATH，之后**完全退出浏览器**再开 |
+| 二、把已有 node 目录加进系统 PATH | 系统属性 → 环境变量 → 系统变量 `Path` → 新增 node.exe 所在目录 | 不重复安装，复用现有的那一份 |
+| 三、从终端带着新环境启动浏览器 | 先退出所有浏览器进程，再 `set PATH=C:\path\to\node;%PATH% && start "" msedge` | 不落盘、只对本次进程树有效；**已有实例在跑时 `start` 只在旧实例开新窗口**，等于无效 |
+| 四、`node-path.txt` 覆盖（兜底） | 在 `host\` 下新建该文件，一行写 node.exe 全路径、不带引号 | 唯一不依赖环境传递的方式，适合不能动 PATH 的受管机器 |
+
+启动器只认三处，按顺序：`node-path.txt` → `WEBTOOPENAPI_NODE` → PATH（再用 `where node.exe` 复核，防 PATH 里的引号写法漏掉）。**不做任何目录扫描**：私有目录布局随时会变，写死一堆路径只会长期失效。命中来源记在日志的 `node source=`。
+
+### 「重启机器能好」只在一种情况下成立
+
+| 你的情况 | 重启机器 | 真正该做的 |
+|---|---|---|
+| cmd 里**也没有** node | ❌ 无用，重启不会凭空生出一个 node.exe | 装 Node.js，或把 node 目录加进 PATH |
+| cmd 里 `node -v` **正常** | ✅ 有效，因为重启让 explorer 全新读一次环境 | 但更省事的是**完全退出浏览器**再开（等效，几十秒） |
+
+「完全退出」指：关闭所有窗口还不够，要在任务管理器里结束所有 `msedge.exe` / `chrome.exe` 残留进程。只关窗口的话，后台进程还握着旧环境，新窗口复用同一进程 = PATH 依旧是旧的。
+
 ## 常见问题
 
 **Q：接口返回 400 Bad Request，响应体是空的？**
@@ -575,10 +628,8 @@ GET 查询串里带了未编码的中文（`?q=人工智能`）。HTTP 请求行
 **Q：popup 显示「本地服务未运行」，重开浏览器也没用？**
 按顺序查三层，每层都有明确判据：
 1. **浏览器有没有尝试拉起 host**：看 `%LOCALAPPDATA%\webtoopenapi\logs\host-launcher.log` 有没有新行。没有 → 扩展的 native 连接没建立（扩展没加载/被禁用，或注册表键缺失——重跑 `host/install-host.ps1`）。
-2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe is not on PATH` 和一条 `launcher PATH=` —— 浏览器进程的 PATH 里找不到 node。浏览器把**它自己启动那一刻**的环境传给启动器，所以本机 cmd 里 `where node` 能用**不代表**浏览器能用；改完 PATH 必须**完全退出浏览器再重开**（含任务管理器里残留的后台进程，只关窗口没用）。
-   修法就是回到 PATH 这个标准约定：安装 Node.js（安装器会自己写 PATH，`winget install OpenJS.NodeJS.LTS`），或把已有的 node 目录加进系统 PATH。极少数不能改 PATH 的机器，可在 `host\` 下建 `node-path.txt` 写一行 node.exe 全路径（不带引号）做覆盖，或用环境变量 `WEBTOOPENAPI_NODE`。
-
-   启动器只认三处，按顺序：`node-path.txt` → `WEBTOOPENAPI_NODE` → PATH（再用 `where node.exe` 复核一遍，防止 PATH 里的引号写法漏掉）。**不做任何目录扫描**：私有目录布局随时会变，写死一堆路径只会长期失效。命中来源记在日志的 `node source=`。
+2. **拉起了但启动器失败**：同一文件里有 `ERROR: node.exe is not on PATH` 和一条 `launcher PATH=` —— 浏览器进程的 PATH 里找不到 node。**为什么 cmd 里 `where node` 能用、浏览器却说没有**，原理、三步自查与四种修法见专节 [为什么 cmd 里 node 能跑，浏览器却说找不到](#为什么-cmd-里-node-能跑浏览器却说找不到)。
+   最短修法：让 node 进 PATH（`winget install OpenJS.NodeJS.LTS`，或把已有 node 目录加进系统 PATH），然后**完全退出浏览器**再开；不能动 PATH 的受管机器用 `host\node-path.txt` 兜底。
 3. **popup 里的「启动失败原因」**：探测彻底失败时，popup 会把扩展记录的上一次 native 断开原因直接显示出来（如 `Access to the specified native messaging host is forbidden` = 扩展 ID 与 manifest 的 `allowed_origins` 不匹配——确认加载的是发布包里的 `extension/` 目录，manifest 自带公钥会锁定 ID；`Native host has exited` = 启动器起来了又退出，回到第 2 步看 launcher 日志）。
 
 **Q：能不能在 Chrome 上用？我只看到文档里写 Edge。**
