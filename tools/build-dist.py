@@ -6,6 +6,7 @@ import os, zipfile, sys, re
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "web-to-openapi-dist.zip")
 INCLUDE_DIRS = ["extension", "host"]
+INCLUDE_FILES = ["README.md"]  # 新机器安装指引随包走
 RESERVED = {"nul", "con", "prn", "aux"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
 
 # 发布包里不写本机绝对路径: 换成占位符, install-host.ps1 运行时自愈成真实路径
@@ -58,6 +59,11 @@ def main():
                     else:
                         z.write(full, rel)
                     count += 1
+        for f in INCLUDE_FILES:
+            full = os.path.join(ROOT, f)
+            if os.path.isfile(full):
+                z.write(full, f)
+                count += 1
     size = os.path.getsize(OUT)
     print(f"[dist] {OUT}")
     print(f"[dist] {count} files, {size/1024/1024:.1f} MB")
