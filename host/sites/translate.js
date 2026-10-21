@@ -481,8 +481,17 @@ const ENGINES = {
           const ok = await ensureFresh(tabId, p.q, () => swapUrlInTab(tabId, url));
           if (!ok) {
             log("warn", `translate[${this.id}] 页内换参未生效(2 次), 退化为重载`);
-            tabId = await reloadInTab(tabId, url);
-            setPooledTab(key, tabId);
+            try {
+              tabId = await reloadInTab(tabId, url);
+              setPooledTab(key, tabId);
+            } catch (e2) {
+              if (!e2.tab_gone) throw e2;
+              // 请求过程中窗口被关掉了: 重新走 acquirePooled, 由 page_mode 决定是否开回窗口
+              log("warn", `translate[${this.id}] 标签页已消失, 按 page_mode 重新打开`);
+              await dropPooled(key, false);
+              const again = await acquirePooled(key, url);
+              tabId = again.tabId;
+            }
             warm = false;
           }
         }

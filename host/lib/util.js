@@ -294,8 +294,31 @@ return { ok:true, path:location.pathname };
   return true;
 }
 
-// 在原标签页里重载目标 URL(页内换参不生效时的降级); tabId 变了就返回新的
+// 标签页是否还存在(且我们能在里面跑脚本)。不存在/不可注入都算"不能再用"。
+async function tabAlive(tabId) {
+  if (tabId == null) return false;
+  try {
+    const r = await jsEval(tabId, "return { alive: 1 };", { timeoutMs: 6000 });
+    return !!(r && r.alive === 1);
+  } catch (e) {
+    return false;
+  }
+}
+
+/*
+ * 在原标签页里重载目标 URL(页内换参不生效时的降级); tabId 变了就返回新的。
+ *
+ * ⚠ 绝不能拿"已经不存在的 tabId"调 chrome_navigate: 扩展侧 tryGetTab 返回 null 后会落到
+ * "在最近窗口开一个后台标签"的分支 —— 请求照样成功, 但 window/window-front 模式下
+ * **窗口再也不会出现**(用户关掉窗口后就是这么"静默降级"的)。所以先探活, 死了就抛 tab_gone,
+ * 由调用方按 page_mode 重新开页面。
+ */
 async function reloadInTab(tabId, url) {
+  if (!(await tabAlive(tabId))) {
+    const e = new Error(`tab ${tabId} 已不存在(窗口被关)`);
+    e.tab_gone = true;
+    throw e;
+  }
   const text = dataText(await callTool("chrome_navigate", { url, tabId, background: true }, 25000));
   if (/"success"\s*:\s*false/.test(text)) throw new Error(String(text).slice(0, 160));
   const m = text.match(/"tabId"\s*:\s*(\d+)/);
@@ -331,7 +354,11 @@ async function acquirePooled(key, url, opts) {
         log("browser", `reload pooled tab=${tabId} url=${url.slice(0, 100)}`);
         return { tabId, warm: false, mode: e.mode || null };
       } catch (err2) {
-        log("warn", `reuse page key=${k} 原标签页重载也失败: ${err2.message}; 新开标签页`);
+        // tab_gone: 用户把 window-front 的窗口关掉了(或标签被关闭) -> 丢掉池子里的死记录,
+        // 落到下面的 openPage, 由 page_mode 决定是不是重新开一个窗口。
+        log("warn", err2.tab_gone
+          ? `pooled tab=${e.tabId} 已不存在(窗口被关闭); 按 page_mode=${e.mode || getCfg().page_mode} 重新打开`
+          : `reuse page key=${k} 原标签页重载也失败: ${err2.message}; 重新打开页面`);
         await dropPooled(k, false);
       }
     }

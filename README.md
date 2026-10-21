@@ -149,6 +149,15 @@ Chrome 用户请注意三点：
 
 也可以只临时改一次：`WEBTOOPENAPI_PAGE_MODE=auto|tab|window|window-corner|window-front` 环境变量。三种方式的优先级：**扩展设置页 > `config.json` > 环境变量**。
 
+**窗口被手动关掉之后，下一次调用会重新开一个。** `window` / `window-front` / `window-corner` 的窗口你一关，复用池里记的 `tabId` 就失效了；此时如果直接拿这个 `tabId` 去导航，扩展会退化成「在当前窗口开个后台标签」，于是**翻译照样成功、窗口却再也不会出现**（已修：重载前先探活，死了就丢掉池子记录、按 `page_mode` 重新开窗）。日志里对应这一行：
+
+```
+[warn] pooled tab=173775190 已不存在(窗口被关闭); 按 page_mode=window-front 重新打开
+[browser] open page mode=window-front tab=... win=...
+```
+
+**另一种「没看到窗口」是命中缓存**：同一段文本在 `keep_tab_ms`（默认 3 分钟）内再请求，会直接返回上次结果，**完全不碰浏览器**，日志是 `translate[baidu] 命中上次结果(同一请求), 跳过浏览器`。想验证窗口行为，换一段文本再调。
+
 **`window-corner` 的实测结论（2026-10-20/21，本机 Edge）**：小窗落在右下角任务栏上方、`focused:false`、`state:normal`。屏幕大小由扩展用「最大化窗口尺寸 + 14px」推断（MV3 service worker 里没有 `window.screen`，Edge 也没有 `chrome.system.display`），推断值按 session 缓存。两种桌面下的表现：
 
 - **浏览器窗口铺满屏幕**（最常见）：小窗被完全遮挡，页面 `visibilityState` 掉 `hidden`，但百度翻译端到端仍 3~5 秒（与未遮挡持平），定时器未观测到实质节流；用户视觉上完全无感。
