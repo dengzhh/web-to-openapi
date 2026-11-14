@@ -15,6 +15,7 @@ const registry = require("../lib/registry");
 
 const sites = [
   require("./_service"), // 服务自身: /health + service_health + browser_tool
+  require("./actions"), // 可信动作层: act/observe + act/click + act/type 等(带回执 ActionReceipt)
   require("./scnet"),
   require("./baidu"),
   require("./google"),
